@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-301",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The minor sensor drift detected is likely due to a temporary calibration issue or electrical interference affecting the sensor's accuracy, which may not be related to the actual engine performance but could lead to inaccurate readings.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a system diagnostics check to isolate and confirm the source of the sensor drift, ensuring it's a software or hardware issue.\n2. Perform a manual check of the vehicle's vital signs, such as oil pressure and engine temperature, to verify if they align with the telematics data, which currently shows oil pressure at 42 psi and engine temperature at 88 C.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 89,
+        "oil_pressure_psi": 41.0,
+        "rpm": 785,
+        "battery_voltage": 12.0,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1766936856",
+    "scheduled_date": "2025-12-29 17:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-304",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The minor sensor drift detected is likely due to a temporary calibration issue or minor fault in the sensor itself, which may not be causing any immediate harm to the vehicle but should be monitored and addressed to prevent potential inaccuracies in telemetry data.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a diagnostic check on the sensor to confirm the nature of the drift and assess if it's a hardware or software issue.\n2. Perform a system reset or calibration of the sensor as per the BMW I7 service manual guidelines to try and resolve the minor drift.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 90,
+        "oil_pressure_psi": 40.0,
+        "rpm": 1500,
+        "battery_voltage": 24.0,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1769699379",
+    "scheduled_date": "2026-01-30 10:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

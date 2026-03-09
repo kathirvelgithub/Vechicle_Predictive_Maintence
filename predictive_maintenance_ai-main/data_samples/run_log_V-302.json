@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-302",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The minor sensor drift detected is likely due to a temporary malfunction or calibration issue with the vehicle's sensors, which may be causing inaccurate readings, but given the simulated nature, it does not directly impact the current operational status of the Mahindra Thar based on the provided telematics data.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a system diagnostic to verify the sensor readings and identify any specific sensors that are malfunctioning or drifting.\n2. Perform a general maintenance check as recommended by the official service manual guidelines to ensure all systems are within normal parameters and to potentially reset or recalibrate the affected sensors.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 90,
+        "oil_pressure_psi": 38.0,
+        "rpm": 1050,
+        "battery_voltage": 12.8,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1766936889",
+    "scheduled_date": "2025-12-30 09:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

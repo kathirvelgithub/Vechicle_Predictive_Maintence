@@ -1,0 +1,22 @@
+cd .\predictive_maintenance_ai\   
+wokwi connection : python app/data/iot_listener.py ,pip install paho-mqtt,pip install paho-mqtt
+run python server : python -m app.main
+frontend: cd frontend,npm run dev
+venv : venv\Scripts\activate
+
+python fleet_simulator.py
+
+frontend libraries:
+
+npm install
+
+
+
+backend libraries:
+
+pip install uvicorn
+pip install fastapi
+pip install dotenv
+pip install pandas
+
+pip install supabase python-dotenv fastapi uvicorn

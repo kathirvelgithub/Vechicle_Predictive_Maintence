@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-303",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The minor sensor drift detected is likely due to a temporary malfunction or calibration issue with one of the vehicle's sensors, which may be causing inaccurate readings, but based on the provided telematics data, the oil pressure and engine temperature are within normal operating ranges for the Mahindra Scorpio N.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a diagnostic scan using the vehicle's onboard computer to identify which specific sensor is experiencing the drift and to check for any other related issues.\n2. Perform a general maintenance check as recommended by the official service manual guidelines to ensure all systems are functioning correctly and to possibly recalibrate or replace the affected sensor if necessary.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 90,
+        "oil_pressure_psi": 40.0,
+        "rpm": 1500,
+        "battery_voltage": 24.0,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1767862868",
+    "scheduled_date": "2026-01-09 09:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

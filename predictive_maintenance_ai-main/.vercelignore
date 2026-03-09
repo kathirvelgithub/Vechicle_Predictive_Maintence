@@ -1,0 +1,11 @@
+.venv/
+data/
+models/*.pt
+models/*.pkl
+tests/
+notebooks/
+venv/
+__pycache__/
+.env
+.DS_Store
+frontend/node_modules/

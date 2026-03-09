@@ -1,0 +1,18 @@
+{
+  "V-101": {
+    "engine_temp": 115,
+    "oil_pressure": 25,
+    "rpm": 3200,
+    "vibration_level": "high",
+    "dtc_codes": ["P0217", "P0524"],
+    "timestamp": "2025-12-10T09:00:00"
+  },
+  "V-102": {
+    "engine_temp": 90,
+    "oil_pressure": 40,
+    "rpm": 2100,
+    "vibration_level": "normal",
+    "dtc_codes": [],
+    "timestamp": "2025-12-10T09:15:00"
+  }
+}

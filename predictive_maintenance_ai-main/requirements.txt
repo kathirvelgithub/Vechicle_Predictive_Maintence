@@ -1,0 +1,96 @@
+# ============================================
+# BACKEND FRAMEWORK
+# ============================================
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+pydantic==2.6.0
+pydantic-settings==2.1.0
+python-dotenv==1.0.1
+python-multipart==0.0.9
+
+# ============================================
+# DATABASE (PostgreSQL)
+# ============================================
+sqlalchemy==2.0.25
+psycopg2-binary==2.9.9
+alembic==1.13.1  # Database migrations
+
+# Legacy Supabase (optional - for migration period)
+# supabase==2.3.4
+
+# ============================================
+# AI/ML STACK
+# ============================================
+# LangChain Ecosystem
+langchain==0.1.6
+langchain-core==0.1.23
+langchain-community==0.0.19
+langgraph==0.0.20
+langsmith==0.0.87
+
+# LLM Providers
+langchain-openai==0.0.5
+groq==0.4.2  # For Groq/Llama 3.3
+openai==1.12.0  # OpenAI API
+
+# ============================================
+# DATA PROCESSING
+# ============================================
+pandas==2.2.0
+numpy==1.26.4
+
+# ============================================
+# IOT/MQTT (Optional - for hardware integration)
+# ============================================
+paho-mqtt==2.0.0
+
+# ============================================
+# VOICE SYNTHESIS
+# ============================================
+gtts==2.5.1  # Google Text-to-Speech
+pydub==0.25.1  # Audio processing
+
+# ============================================
+# FRONTEND (Alternative)
+# ============================================
+streamlit==1.31.0
+
+# ============================================
+# HTTP CLIENTS
+# ============================================
+httpx==0.26.0
+requests==2.31.0
+
+# ============================================
+# SECURITY
+# ============================================
+python-jose[cryptography]==3.3.0  # JWT tokens
+passlib[bcrypt]==1.7.4  # Password hashing
+bcrypt==4.1.2
+
+# ============================================
+# UTILITIES
+# ============================================
+python-dateutil==2.8.2
+pytz==2024.1
+
+# ============================================
+# TESTING
+# ============================================
+pytest==8.0.0
+pytest-asyncio==0.23.4
+pytest-cov==4.1.0
+httpx==0.26.0  # For testing async endpoints
+
+# ============================================
+# DEVELOPMENT TOOLS
+# ============================================
+black==24.1.1  # Code formatter
+flake8==7.0.0  # Linter
+mypy==1.8.0  # Type checker
+
+# ============================================
+# MONITORING (Optional)
+# ============================================
+# prometheus-client==0.19.0
+# sentry-sdk==1.40.0

@@ -1,0 +1,24 @@
+{
+    "vehicle_id": "V-101",
+    "risk_score": 100,
+    "detected_issues": [
+        "Critical Overheating (113\u00b0C)",
+        "Critical Low Oil Pressure (0 psi)",
+        "Active Fault Codes Detected: 2"
+    ],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Critical Overheating (113\u00b0C) and Critical Low Oil Pressure (0 psi) with 2 Active Fault Codes Detected.\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The truck is experiencing simultaneous critical overheating and low oil pressure issues, which could be caused by a faulty thermostat, blocked radiator, or a failing oil pump, and may be exacerbated by low or dirty coolant, engine oil, or other underlying problems.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. **Check coolant level and condition**: Inspect the coolant level and condition to determine if it's low or dirty, which could be contributing to the overheating issue.\n2. **Test oil pressure with gauge**: Use a gauge to test the oil pressure and verify if it's indeed 0 psi, and then inspect the oil pump for wear or damage, as well as the valve cover gasket for leaks.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Critical - The combination of critical overheating and low oil pressure poses a significant risk of engine damage or failure, which could result in costly repairs or even require a new engine, making immediate attention essential to prevent further damage.",
+    "telematics_data": {
+        "engine_temp_c": 85,
+        "oil_pressure_psi": 45,
+        "rpm": 1200,
+        "battery_voltage": 24.2,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "AUTO_AUTHORIZED",
+    "booking_id": "BK-1769609688",
+    "scheduled_date": "2026-01-29 09:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

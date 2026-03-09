@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-403",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The primary cause of the issue is likely a minor malfunction in one of the vehicle's sensors, which is causing a slight deviation in the data it is reporting, such as oil pressure or engine temperature.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a diagnostic test on the vehicle's sensor systems to identify the specific sensor that is malfunctioning and to determine the extent of the drift.\n2. Perform a general maintenance check on the vehicle, including checking the oil and fluid levels, as recommended by the official service manual guidelines.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 85,
+        "oil_pressure_psi": 43.0,
+        "rpm": 567,
+        "battery_voltage": 12.1,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1766936880",
+    "scheduled_date": "2025-12-30 09:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

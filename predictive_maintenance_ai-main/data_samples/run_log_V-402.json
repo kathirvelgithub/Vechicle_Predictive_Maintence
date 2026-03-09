@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-402",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Issue Summary\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The minor sensor drift detected is likely due to a calibration issue or a loose connection in the sensor wiring, which is a common cause of minor discrepancies in sensor readings.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Run a diagnostic check on the sensor system to confirm the extent of the drift and identify the specific sensor affected.\n2. Perform a general maintenance check as recommended by the service manual, including verifying sensor connections and calibrations to ensure accurate readings.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 90,
+        "oil_pressure_psi": 40.0,
+        "rpm": 1500,
+        "battery_voltage": 24.0,
+        "dtc_readable": "None"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1769658422",
+    "scheduled_date": "2026-01-30 09:00",
+    "voice_transcript": [],
+    "manufacturing_recommendations": "",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

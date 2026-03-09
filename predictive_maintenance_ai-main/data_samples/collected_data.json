@@ -1,0 +1,169 @@
+{
+  "fleet_id": "FL-9928-AX",
+  "timestamp_utc": "2025-12-14T12:00:00Z",
+  "vehicles": {
+    "V-101": {
+      "metadata": {
+        "model": "Mahindra BE 6 Batman Edition",
+        "year": 2022,
+        "owner": "Logistics Corp"
+      },
+      "telematics": {
+        "engine_temp_c": 113,
+        "oil_pressure_psi": 0,
+        "active_dtc_codes": [
+          "P0217",
+          "P0524"
+        ],
+        "rpm": 3837,
+        "vibration_level": "HIGH",
+        "vibration_hz": 59.73,
+        "battery_voltage": 24.3,
+        "fuel_level_percent": 52,
+        "gps_location": {
+          "lat": 28.7041,
+          "lon": 77.1025
+        },
+        "tire_pressure_bar": [
+          7.1,
+          7.0,
+          6.9,
+          7.1
+        ]
+      }
+    },
+    "V-301": {
+      "metadata": {
+        "model": "Mahindra BE 6",
+        "year": 2024,
+        "owner": "Urban Fleet"
+      },
+      "telematics": {
+        "engine_temp_c": 88,
+        "oil_pressure_psi": 42,
+        "rpm": 1800,
+        "vibration_level": "NORMAL",
+        "battery_voltage": 12.6,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 19.076,
+          "lon": 72.8777
+        }
+      }
+    },
+    "V-302": {
+      "metadata": {
+        "model": "Mahindra XEV 9S",
+        "year": 2023,
+        "owner": "Adventure Tours"
+      },
+      "telematics": {
+        "engine_temp_c": 98,
+        "oil_pressure_psi": 38,
+        "rpm": 2400,
+        "vibration_level": "MODERATE",
+        "battery_voltage": 12.4,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 31.1048,
+          "lon": 77.1734
+        }
+      }
+    },
+    "V-303": {
+      "metadata": {
+        "model": "MG Windsor EV",
+        "year": 2023,
+        "owner": "Rental Service"
+      },
+      "telematics": {
+        "engine_temp_c": 91,
+        "oil_pressure_psi": 40,
+        "rpm": 2100,
+        "vibration_level": "NORMAL",
+        "battery_voltage": 12.8,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 12.9716,
+          "lon": 77.5946
+        }
+      }
+    },
+    "V-304": {
+      "metadata": {
+        "model": "BMW I7",
+        "year": 2024,
+        "owner": "Executive Transport"
+      },
+      "telematics": {
+        "engine_temp_c": 89,
+        "oil_pressure_psi": 44,
+        "rpm": 1950,
+        "vibration_level": "NORMAL",
+        "battery_voltage": 12.7,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 13.0827,
+          "lon": 80.2707
+        }
+      }
+    },
+    "V-401": {
+      "metadata": {
+        "model": "Audi e-tron GT",
+        "year": 2023,
+        "owner": "Corporate Lease"
+      },
+      "telematics": {
+        "engine_temp_c": 85,
+        "oil_pressure_psi": 35,
+        "rpm": 1600,
+        "vibration_level": "LOW",
+        "battery_voltage": 12.5,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 22.5726,
+          "lon": 88.3639
+        }
+      }
+    },
+    "V-402": {
+      "metadata": {
+        "model": "Volvo EC40",
+        "year": 2024,
+        "owner": "Corporate Lease"
+      },
+      "telematics": {
+        "engine_temp_c": 87,
+        "oil_pressure_psi": 36,
+        "rpm": 1750,
+        "vibration_level": "LOW",
+        "battery_voltage": 12.6,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 23.0225,
+          "lon": 72.5714
+        }
+      }
+    },
+    "V-403": {
+      "metadata": {
+        "model": "Porsche Taycan",
+        "year": 2024,
+        "owner": "Eco Cabs"
+      },
+      "telematics": {
+        "engine_temp_c": 62,
+        "oil_pressure_psi": 45,
+        "rpm": 1200,
+        "vibration_level": "LOW",
+        "battery_voltage": 13.2,
+        "active_dtc_codes": [],
+        "gps_location": {
+          "lat": 17.385,
+          "lon": 78.4867
+        }
+      }
+    }
+  }
+}

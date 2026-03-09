@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-106",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Critical Faults\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The primary cause of the issue is likely related to the minor sensor drift detected, which may be affecting the accuracy of the telematics data, such as the oil pressure and engine temperature readings.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Check the sensor calibration and perform a reset if necessary to ensure accurate readings.\n2. Monitor the oil pressure and engine temperature closely for any signs of abnormal behavior, and perform a visual inspection of the engine and cooling system to identify any potential issues.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium",
+    "telematics_data": {
+        "engine_temp_c": 117,
+        "oil_pressure_psi": 9.0,
+        "rpm": 855,
+        "battery_voltage": 25.0,
+        "dtc_readable": "P0217"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1766485842",
+    "scheduled_date": "2025-12-24 09:00",
+    "voice_transcript": null,
+    "manufacturing_recommendations": "### \ud83c\udfed Design Flaw Analysis\n* **Vulnerability:** The sensor calibration process and data validation logic are vulnerable to minor sensor drifts, which can affect the accuracy of telematics data.\n* **Root Cause:** The root cause of the issue is likely due to the lack of redundancy in sensor calibration and data validation, which can lead to inaccurate readings and potential system failures.\n\n### \ud83d\udd27 Engineering Fix (CAPA)\n* **Hardware Upgrade:** Upgrade the sensor suite to include redundant sensors for oil pressure and engine temperature, allowing for cross-validation and improved accuracy.\n* **Sensor Logic:** Implement a more advanced sensor logic that includes machine learning-based anomaly detection and automatic calibration adjustment to minimize the impact of sensor drift.\n* **Fail-Safe Mechanism:** Introduce a fail-safe mechanism that triggers an alert and initiates a safe shutdown procedure if the system detects a critical deviation in oil pressure or engine temperature readings.\n\n### \ud83e\uddea Validation Plan\n* **Testing:** Conduct a combination of hardware-in-the-loop (HIL) simulation, vehicle testing, and durability testing for a total of 1000 hours to validate the effectiveness of the proposed fixes.\n* **Expected Result:** Expect a reduction in field failure rates by 90% and an improvement in overall system reliability and accuracy, with a target of fewer than 5 instances of critical faults per 1000 vehicle-years.",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}

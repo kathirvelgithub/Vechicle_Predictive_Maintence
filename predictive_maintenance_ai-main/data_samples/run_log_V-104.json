@@ -1,0 +1,20 @@
+{
+    "vehicle_id": "V-104",
+    "risk_score": 0,
+    "detected_issues": [],
+    "diagnosis": "### \ud83d\udea8 Critical Faults\n* **[Code/Issue]**: Minor sensor drift detected (Simulated)\n\n### \ud83d\udcc9 Root Cause Analysis\n* **Primary Cause:** The primary cause of the issue is not directly related to a critical fault in the vehicle's primary systems, but the provided telematics data indicates potential concerns with the engine temperature being slightly high at 122 C, which may not be directly caused by the minor sensor drift.\n\n### \ud83d\udee0\ufe0f Immediate Action Plan\n1. Monitor the vehicle's engine temperature and oil pressure closely to ensure they remain within the acceptable operating ranges.\n2. Run a diagnostic check on the sensor system to isolate and potentially correct the minor sensor drift, ensuring accurate readings of vital engine parameters.\n\n### \u26a0\ufe0f Risk Assessment\n* **Severity:** Medium \nNote: The severity is rated as medium because, while the minor sensor drift itself might not be critical, the slightly elevated engine temperature could potentially lead to more serious issues if not monitored and addressed appropriately.",
+    "telematics_data": {
+        "engine_temp_c": 122,
+        "oil_pressure_psi": 5.0,
+        "rpm": 633,
+        "battery_voltage": 25.3,
+        "dtc_readable": "P0217"
+    },
+    "customer_decision": "BOOKED",
+    "booking_id": "BK-1766485853",
+    "scheduled_date": "2025-12-24 12:00",
+    "voice_transcript": null,
+    "manufacturing_recommendations": "### \ud83c\udfed Design Flaw Analysis\n* **Vulnerability:** The sensor system's lack of redundancy and cross-validation between vital engine parameters (e.g., engine temperature and oil pressure) is the specific part of the design that failed, leading to the minor sensor drift and slightly elevated engine temperature.\n* **Root Cause:** The root cause of the failure is the inadequate design of the sensor system, which relies on a single point of measurement for critical engine parameters without sufficient backup or validation, potentially leading to inaccuracies in readings.\n\n### \ud83d\udd27 Engineering Fix (CAPA)\n* **Hardware Upgrade:** Replace the existing sensor with a higher-grade, more accurate temperature sensor that is less prone to drift, and add redundant sensors for critical engine parameters to ensure cross-validation of readings.\n* **Sensor Logic:** Implement advanced sensor logic that includes cross-validation between oil and temperature sensors, allowing the system to detect and correct for minor sensor drifts and ensuring more accurate readings of vital engine parameters.\n* **Fail-Safe Mechanism:** Integrate an auto-alert and potential auto-shutdown mechanism if the engine temperature exceeds 120\u00b0C, to prevent further damage and ensure operator safety.\n\n### \ud83e\uddea Validation Plan\n* **Testing:** Conduct a combination of hardware-in-the-loop (HIL) simulation for 1000 hours and real-world testing under various operating conditions to validate the effectiveness of the proposed CAPA plan.\n* **Expected Result:** Expect the field failure rate due to sensor drift and related engine temperature issues to be reduced by 90%, with significant improvements in the overall reliability and performance of the HeavyHaul X5.",
+    "ueba_alerts": [],
+    "timestamp": "Just now"
+}
