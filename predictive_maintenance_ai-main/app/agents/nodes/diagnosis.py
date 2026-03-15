@@ -1,11 +1,8 @@
 import re
-import os
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
-from dotenv import load_dotenv
 
 # Import your AgentState definition
 from app.agents.state import AgentState
+from app.agents.llm_gateway import invoke_with_policy
 
 # ✅ IMPORT KNOWLEDGE BASE UTILITY
 try:
@@ -13,20 +10,6 @@ try:
 except ImportError:
     print("⚠️ Warning: app.utils.knowledge not found. RAG disabled.")
     def find_diagnosis_steps(x): return []
-
-load_dotenv()
-
-# ✅ SETUP: Fetch Key & Initialize LLM
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-if not groq_api_key:
-    print("❌ ERROR: GROQ_API_KEY not found in .env file")
-
-llm = ChatOpenAI(
-    model="llama-3.3-70b-versatile",
-    base_url="https://api.groq.com/openai/v1",
-    api_key=groq_api_key
-)
 
 def diagnosis_node(state: AgentState) -> AgentState:
     """
@@ -118,11 +101,12 @@ def diagnosis_node(state: AgentState) -> AgentState:
 
     # 5. Call LLM
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
+        content, model_used = invoke_with_policy(prompt, profile="diagnosis")
+        state.setdefault("model_used_by_node", {})["diagnosis"] = model_used
     except Exception as e:
         print(f"❌ Diagnosis Agent LLM Error: {e}")
         content = f"Error generating diagnosis: {str(e)}"
+        state.setdefault("model_used_by_node", {})["diagnosis"] = "error"
         state["priority_level"] = "High" # Default to High on error to be safe
         state["diagnosis_report"] = content
         return state

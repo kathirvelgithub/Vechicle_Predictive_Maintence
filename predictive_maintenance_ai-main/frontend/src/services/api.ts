@@ -1,6 +1,5 @@
 import axios from 'axios';
-
-const API_BASE_URL = 'http://localhost:8000/api';
+import { API_BASE_URL } from './config';
 
 // ==========================================
 // 1. INTERFACES
@@ -76,14 +75,7 @@ export const api = {
             return response.data;
         } catch (error) {
             console.error(`Failed to fetch telematics for ${vehicleId}`, error);
-            // Optional: Return Mock Data if backend fails
-            return {
-                vehicle_id: vehicleId,
-                engine_temp_c: 90,
-                oil_pressure_psi: 40,
-                rpm: 1000,
-                battery_voltage: 24.0
-            };
+            return null;
         }
     },
 

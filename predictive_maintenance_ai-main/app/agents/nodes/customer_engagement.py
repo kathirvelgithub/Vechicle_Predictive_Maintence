@@ -1,24 +1,5 @@
-import os
-from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from app.agents.state import AgentState
-
-# --- 1. LOAD ENVIRONMENT VARIABLES ---
-load_dotenv() 
-
-# --- 2. FETCH KEY FROM ENV ---
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-if not groq_api_key:
-    print("❌ ERROR: GROQ_API_KEY is missing from .env file!")
-
-# --- 3. SETUP GROQ LLM ---
-llm = ChatOpenAI(
-    model="llama-3.3-70b-versatile",
-    base_url="https://api.groq.com/openai/v1",
-    api_key=groq_api_key
-)
+from app.agents.llm_gateway import invoke_with_policy
 
 def customer_node(state: AgentState) -> AgentState:
     print(f"🗣️ [Customer] Drafting notification for {state.get('vehicle_id')}...")
@@ -54,11 +35,13 @@ def customer_node(state: AgentState) -> AgentState:
     """
 
     try:
-        # Call Groq
-        response = llm.invoke([HumanMessage(content=prompt)])
-        state["customer_script"] = response.content
+        # Call shared LLM gateway
+        content, model_used = invoke_with_policy(prompt, profile="customer")
+        state.setdefault("model_used_by_node", {})["customer_engagement"] = model_used
+        state["customer_script"] = content
     except Exception as e:
         print(f"❌ Customer Agent LLM Error: {e}")
+        state.setdefault("model_used_by_node", {})["customer_engagement"] = "error"
         # Fallback
         state["customer_script"] = f"Urgent: Your {model} requires service. Please contact us."
 

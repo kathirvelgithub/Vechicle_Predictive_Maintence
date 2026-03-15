@@ -102,6 +102,79 @@ CREATE TABLE IF NOT EXISTS telematics_logs (
 );
 
 -- ============================================
+-- 2B. VEHICLE LIVE STATE TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS vehicle_live_state (
+    vehicle_id VARCHAR(50) PRIMARY KEY,
+    timestamp_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    -- Latest Core Metrics
+    speed_kmh DECIMAL(5, 2),
+    rpm INTEGER,
+    engine_temp_c DECIMAL(5, 2),
+    oil_pressure_psi DECIMAL(5, 2),
+    fuel_level_percent DECIMAL(5, 2),
+    battery_voltage DECIMAL(4, 2),
+    active_dtc_codes TEXT[],
+
+    -- Latest AI Flags
+    risk_score INTEGER DEFAULT 0,
+    risk_level VARCHAR(20) DEFAULT 'LOW',
+    anomaly_level VARCHAR(20) DEFAULT 'NORMAL',
+    anomaly_detected BOOLEAN DEFAULT false,
+    last_reasons TEXT[],
+
+    raw_payload JSONB,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_live_state_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE
+);
+
+-- ============================================
+-- 2C. ANOMALY EVENTS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS anomaly_events (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vehicle_id VARCHAR(50) NOT NULL,
+    event_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    anomaly_level VARCHAR(20) NOT NULL, -- WATCH, HIGH, CRITICAL
+    risk_score INTEGER,
+    risk_level VARCHAR(20),
+    reasons TEXT[],
+    telematics_snapshot JSONB,
+
+    resolved BOOLEAN DEFAULT false,
+    resolved_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_anomaly_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE
+);
+
+-- ============================================
+-- 2D. TELEMETRY MINUTE AGGREGATES TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS telemetry_minute_aggregates (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vehicle_id VARCHAR(50) NOT NULL,
+    bucket_minute TIMESTAMP NOT NULL,
+
+    samples_count INTEGER DEFAULT 0,
+    avg_engine_temp_c DECIMAL(5, 2),
+    max_engine_temp_c DECIMAL(5, 2),
+    min_oil_pressure_psi DECIMAL(5, 2),
+    avg_rpm DECIMAL(8, 2),
+    avg_battery_voltage DECIMAL(6, 3),
+    risk_score_max INTEGER,
+    anomaly_count INTEGER DEFAULT 0,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_telemetry_minute UNIQUE (vehicle_id, bucket_minute),
+    CONSTRAINT fk_aggregate_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE
+);
+
+-- ============================================
 -- 3. AI ANALYSIS RESULTS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS ai_analysis_results (
@@ -247,6 +320,18 @@ CREATE INDEX idx_telematics_timestamp ON telematics_logs(timestamp_utc DESC);
 CREATE INDEX idx_telematics_vehicle_time ON telematics_logs(vehicle_id, timestamp_utc DESC);
 CREATE INDEX idx_telematics_anomaly ON telematics_logs(anomaly_detected) WHERE anomaly_detected = true;
 
+-- Vehicle Live State
+CREATE INDEX idx_live_state_risk_level ON vehicle_live_state(risk_level);
+CREATE INDEX idx_live_state_updated_at ON vehicle_live_state(updated_at DESC);
+
+-- Anomaly Events
+CREATE INDEX idx_anomaly_events_vehicle_time ON anomaly_events(vehicle_id, event_timestamp DESC);
+CREATE INDEX idx_anomaly_events_level ON anomaly_events(anomaly_level);
+CREATE INDEX idx_anomaly_events_unresolved ON anomaly_events(resolved) WHERE resolved = false;
+
+-- Telemetry Aggregates
+CREATE INDEX idx_telemetry_agg_vehicle_bucket ON telemetry_minute_aggregates(vehicle_id, bucket_minute DESC);
+
 -- AI Analysis Results
 CREATE INDEX idx_analysis_vehicle_id ON ai_analysis_results(vehicle_id);
 CREATE INDEX idx_analysis_timestamp ON ai_analysis_results(analysis_timestamp DESC);
@@ -299,6 +384,9 @@ CREATE TRIGGER update_vehicles_updated_at BEFORE UPDATE ON vehicles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_bookings_updated_at BEFORE UPDATE ON service_bookings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_live_state_updated_at BEFORE UPDATE ON vehicle_live_state
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================

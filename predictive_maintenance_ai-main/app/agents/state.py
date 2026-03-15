@@ -1,6 +1,17 @@
 from typing import TypedDict, List, Optional, Dict, Any
 
 class AgentState(TypedDict):
+    # --- 0. ORCHESTRATION METADATA ---
+    run_id: str
+    trigger_source: str
+    orchestration_route: str
+    route_reason: str
+    execution_started_at: Optional[str]
+    execution_finished_at: Optional[str]
+    node_statuses: Dict[str, str]
+    node_latency_ms: Dict[str, int]
+    model_used_by_node: Dict[str, str]
+
     # --- 1. CORE INPUTS ---
     vehicle_id: str
     vin: Optional[str]  # ✅ Added: Critical for Database Lookups

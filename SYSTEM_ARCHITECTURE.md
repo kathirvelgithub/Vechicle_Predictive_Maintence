@@ -138,11 +138,11 @@ npm run dev
 ```
 
 ### Terminal 4 — Auth Service (optional)
-```bash
-cd predictive_maintenance_ai-main/auth-service
-$env:JAVA_HOME = "C:\Program Files\Java\jdk-21"
-./mvnw spring-boot:run
+```cmd
+cd predictive_maintenance_ai-main\auth-service
+set "JAVA_HOME=C:\Program Files\Java\jdk-21"
+set "PATH=%JAVA_HOME%\bin;%PATH%"
+mvnw.cmd spring-boot:run
 ```
 
 Open http://localhost:3000 → Click "Start Fleet" → Watch all 7 vehicles simulate.
-```

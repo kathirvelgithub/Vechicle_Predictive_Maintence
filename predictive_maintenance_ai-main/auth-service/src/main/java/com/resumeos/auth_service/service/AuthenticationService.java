@@ -10,7 +10,6 @@ import com.resumeos.auth_service.dto.RegisterRequest;
 import com.resumeos.auth_service.entity.Role;
 import com.resumeos.auth_service.entity.User;
 import com.resumeos.auth_service.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value; // <--- Import this!
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -21,13 +20,23 @@ import java.util.Collections;
 import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class AuthenticationService {
 
     private final UserRepository repository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
     private final AuthenticationManager authenticationManager;
+
+    // Explicit constructor to initialize final fields (avoid Lombok reliance)
+    public AuthenticationService(UserRepository repository,
+                                 PasswordEncoder passwordEncoder,
+                                 JwtService jwtService,
+                                 AuthenticationManager authenticationManager) {
+        this.repository = repository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtService = jwtService;
+        this.authenticationManager = authenticationManager;
+    }
 
     // --- UPDATED: Inject from application.properties ---
     @Value("${google.client.id}")

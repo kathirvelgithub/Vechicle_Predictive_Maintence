@@ -1,41 +1,133 @@
 import { EnhancedTelemetry, VehicleProfile } from './telemetry-types';
 
-export class RealisticSimulator {
+// ───────────────────────────────────────────────────────────────────────
+// Enhanced Realistic Simulator with:
+//  1. Markov driving-cycle state machine
+//  2. Ornstein-Uhlenbeck (OU) noise for all sensor readings
+//  3. NASA CMAPSS-calibrated piecewise wear model
+//  4. SUMO-inspired waypoint GPS routing
+// ───────────────────────────────────────────────────────────────────────
+
+// ── 1. Markov driving-cycle state machine ───────────────────────────────────
+type DriveState = 'idle' | 'city' | 'highway' | 'acceleration' | 'braking';
+
+const RS_MARKOV: Record<DriveState, Record<DriveState, number>> = {
+  idle:         { idle: 0.60, city: 0.35, highway: 0.00, acceleration: 0.05, braking: 0.00 },
+  city:         { idle: 0.08, city: 0.55, highway: 0.15, acceleration: 0.15, braking: 0.07 },
+  highway:      { idle: 0.01, city: 0.10, highway: 0.72, acceleration: 0.12, braking: 0.05 },
+  acceleration: { idle: 0.00, city: 0.25, highway: 0.30, acceleration: 0.35, braking: 0.10 },
+  braking:      { idle: 0.25, city: 0.50, highway: 0.05, acceleration: 0.00, braking: 0.20 },
+};
+const RS_DWELL: Record<DriveState, number> = { idle: 3, city: 4, highway: 6, acceleration: 2, braking: 2 };
+const RS_TARGETS: Record<DriveState, { speedMu: number; rpmMu: number; throttleMu: number }> = {
+  idle:         { speedMu: 0,  rpmMu: 820,  throttleMu: 3  },
+  city:         { speedMu: 35, rpmMu: 2000, throttleMu: 35 },
+  highway:      { speedMu: 95, rpmMu: 2600, throttleMu: 55 },
+  acceleration: { speedMu: 75, rpmMu: 3800, throttleMu: 82 },
+  braking:      { speedMu: 20, rpmMu: 900,  throttleMu: 2  },
+};
+
+function rsSampleMarkov(from: DriveState): DriveState {
+  let r = Math.random();
+  for (const [s, p] of Object.entries(RS_MARKOV[from]) as [DriveState, number][]) {
+    r -= p; if (r <= 0) return s;
+  }
+  return from;
+}
+
+// ── 2. Ornstein-Uhlenbeck helpers ───────────────────────────────────────────
+function rsGaussian(): number {
+  const u1 = Math.random() + 1e-10, u2 = Math.random();
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+function rsOU(x: number, mu: number, theta: number, sigma: number): number {
+  return x + theta * (mu - x) + sigma * rsGaussian();
+}
+
+// ── 3. NASA CMAPSS piecewise wear rate ──────────────────────────────────────
+function rsWearRate(base: number, health: number): number {
+  const h = Math.min(100, Math.max(0, health));
+  return base * (1 + 2 * (1 - h / 100) ** 2);
+}
+
+// ── 4. SUMO-inspired waypoint routes (Chennai metro area) ──────────────────
+const SUMO_ROUTES: Array<Array<{ lat: number; lng: number; altM: number }>> = [
+  // Route 0: Urban loop — Chennai city centre
+  [ { lat: 13.0827, lng: 80.2707, altM: 6  }, { lat: 13.0878, lng: 80.2648, altM: 8  },
+    { lat: 13.0920, lng: 80.2590, altM: 10 }, { lat: 13.0960, lng: 80.2650, altM: 9  },
+    { lat: 13.0940, lng: 80.2720, altM: 7  }, { lat: 13.0900, lng: 80.2780, altM: 6  } ],
+  // Route 1: Highway stretch — OMR
+  [ { lat: 12.9718, lng: 80.1985, altM: 12 }, { lat: 13.0100, lng: 80.2080, altM: 14 },
+    { lat: 13.0500, lng: 80.2200, altM: 15 }, { lat: 13.0900, lng: 80.2350, altM: 13 },
+    { lat: 13.0500, lng: 80.2200, altM: 15 }, { lat: 13.0100, lng: 80.2080, altM: 14 } ],
+  // Route 2: Suburban — GST Road
+  [ { lat: 12.9100, lng: 80.2300, altM: 5  }, { lat: 12.9300, lng: 80.2450, altM: 6  },
+    { lat: 12.9500, lng: 80.2550, altM: 8  }, { lat: 12.9700, lng: 80.2400, altM: 7  },
+    { lat: 12.9500, lng: 80.2200, altM: 6  }, { lat: 12.9300, lng: 80.2100, altM: 5  } ],
+  // Route 3: Port — for trucks (slower, flat)
+  [ { lat: 13.0900, lng: 80.2900, altM: 3  }, { lat: 13.0850, lng: 80.2950, altM: 3  },
+    { lat: 13.0800, lng: 80.3000, altM: 4  }, { lat: 13.0750, lng: 80.2950, altM: 3  },
+    { lat: 13.0800, lng: 80.2900, altM: 3  } ],
+  // Route 4: Industrial — Ambattur
+  [ { lat: 13.1100, lng: 80.1500, altM: 18 }, { lat: 13.1200, lng: 80.1600, altM: 20 },
+    { lat: 13.1300, lng: 80.1700, altM: 22 }, { lat: 13.1200, lng: 80.1800, altM: 21 },
+    { lat: 13.1100, lng: 80.1700, altM: 19 }, { lat: 13.1000, lng: 80.1600, altM: 18 } ],
+];
+
+function haversineM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
   private vehicleId: string;
   private profile: VehicleProfile;
   private telemetry: EnhancedTelemetry;
   private isRunning: boolean = false;
   private simulationTime: number = 0;
-  
+
   // Physics state
   private currentSpeed: number = 0;
   private currentRPM: number = 800;
   private currentGear: number = 0;
   private throttle: number = 0;
   private brake: number = 0;
-  private position: { lat: number; lng: number } = { lat: 37.7749, lng: -122.4194 };
-  private heading: number = 0;
-  
+
+  // 1. Markov driving state
+  private driveState: DriveState = 'city';
+  private driveDwell: number = 0;
+
+  // 4. SUMO GPS routing
+  private routeIdx:    number = 0;
+  private wayptIdx:    number = 0;
+  private wayptProg:   number = 0;
+  private heading:     number = 0;
+  private position:    { lat: number; lng: number } = { lat: 13.0827, lng: 80.2707 };
+
   // Wear simulation
-  private engineWear: number = 100;
-  private transmissionWear: number = 100;
-  private brakeWear: number = 100;
-  private tireWear: number = 100;
-  private batteryHealth: number = 100;
-  private coolingSystemHealth: number = 100;
-  private exhaustSystemHealth: number = 100;
-  private suspensionHealth: number = 100;
-  
+  private engineWear:           number = 100;
+  private transmissionWear:     number = 100;
+  private brakeWear:            number = 100;
+  private tireWear:             number = 100;
+  private batteryHealth:        number = 100;
+  private coolingSystemHealth:  number = 100;
+  private exhaustSystemHealth:  number = 100;
+  private suspensionHealth:     number = 100;
+
   // Cumulative stats
-  private totalDistance: number = 0;
-  private totalOperatingTime: number = 0;
-  private totalIdleTime: number = 0;
-  private totalFuelUsed: number = 0;
+  private totalDistance:       number = 0;
+  private totalOperatingTime:  number = 0;
+  private totalIdleTime:       number = 0;
+  private totalFuelUsed:       number = 0;
 
   constructor(vehicleType: VehicleProfile['type'] = 'sedan', vehicleId?: string) {
     this.vehicleId = vehicleId || `VEH-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-    this.profile = this.getVehicleProfile(vehicleType);
+    this.profile   = this.getVehicleProfile(vehicleType);
     this.telemetry = this.initializeTelemetry();
+    // Assign SUMO route based on vehicle type
+    this.routeIdx  = ['sedan','suv','truck','sportsCar','electricVehicle'].indexOf(vehicleType) % SUMO_ROUTES.length;
+    this.position  = { ...SUMO_ROUTES[this.routeIdx][0] };
   }
 
   private getVehicleProfile(type: VehicleProfile['type']): VehicleProfile {
@@ -175,84 +267,75 @@ export class RealisticSimulator {
 
   public update(deltaTime: number) {
     if (!this.isRunning) return;
-
     this.simulationTime += deltaTime;
-    this.totalOperatingTime += deltaTime / 3600; // Convert to hours
+    this.totalOperatingTime += deltaTime / 3600;
 
-    // Simulate realistic driving behavior
-    this.simulateDrivingBehavior(deltaTime);
-    
+    // 1. Markov: advance driving state
+    this.driveDwell++;
+    if (this.driveDwell >= RS_DWELL[this.driveState]) {
+      const next = rsSampleMarkov(this.driveState);
+      if (next !== this.driveState) { this.driveState = next; this.driveDwell = 0; }
+    }
+    const stateTarget = RS_TARGETS[this.driveState];
+
+    // Drive throttle/brake from Markov state (replaces fixed cycle)
+    this.throttle = rsOU(this.throttle, stateTarget.throttleMu, 0.25, 5);
+    this.throttle = Math.min(100, Math.max(0, this.throttle));
+    this.brake    = this.driveState === 'braking' ? rsOU(this.brake, 70, 0.3, 8)
+                  : Math.max(0, this.brake - 80 * deltaTime);
+    this.brake    = Math.min(100, Math.max(0, this.brake));
+
     // Update physics
-    this.updatePhysics(deltaTime);
-    
-    // Update wear and tear
+    this.updatePhysics(deltaTime, stateTarget);
+    // 3. CMAPSS wear
     this.updateWearAndTear(deltaTime);
-    
-    // Generate anomalies occasionally
+    // Anomalies
     this.simulateAnomalies();
-    
-    // Update telemetry
+    // Sensor update (OU noise applied inside)
     this.updateTelemetry();
   }
 
-  private simulateDrivingBehavior(deltaTime: number) {
-    const cycle = (this.simulationTime % 120) / 120; // 2-minute cycle
-    
-    // Realistic throttle pattern
-    if (cycle < 0.3) {
-      // Acceleration phase
-      this.throttle = Math.min(100, this.throttle + 30 * deltaTime);
-    } else if (cycle < 0.6) {
-      // Cruising phase
-      this.throttle = 30 + Math.sin(this.simulationTime * 0.5) * 10;
-    } else if (cycle < 0.7) {
-      // Deceleration phase
-      this.throttle = Math.max(0, this.throttle - 50 * deltaTime);
-      this.brake = Math.min(100, this.brake + 40 * deltaTime);
-    } else {
-      // Stop/idle phase
-      this.throttle = 0;
-      this.brake = 100;
-    }
-    
-    // Release brake when accelerating
-    if (this.throttle > 10) {
-      this.brake = Math.max(0, this.brake - 100 * deltaTime);
-    }
+  private simulateDrivingBehavior(_deltaTime: number) { /* replaced by Markov in update() */ }
+
+  private updatePhysics(deltaTime: number, stateTarget: { speedMu: number; rpmMu: number }) {
+    // OU-guided speed toward state target
+    const targetSpeed = stateTarget.speedMu;
+    const accel = this.brake > 50 ? -5 : (targetSpeed - this.currentSpeed) * 0.5;
+    this.currentSpeed = Math.max(0, this.currentSpeed + accel * deltaTime);
+
+    this.currentGear = this.calculateGear();
+    this.currentRPM  = this.currentGear === 0 ? 820
+      : rsOU(this.currentRPM, stateTarget.rpmMu, 0.20, 60);
+    this.currentRPM  = Math.max(700, Math.min(this.profile.maxRPM, this.currentRPM));
+
+    // 4. SUMO-style waypoint GPS routing
+    this.updateSumoPosition(deltaTime);
+
+    // Idle time
+    if (this.currentSpeed < 1 && this.currentRPM < 900) this.totalIdleTime += deltaTime / 3600;
   }
 
-  private updatePhysics(deltaTime: number) {
-    // Calculate target speed based on throttle
-    const targetSpeed = (this.throttle / 100) * this.profile.maxSpeed;
-    
-    // Apply acceleration/deceleration
-    const acceleration = this.brake > 50 
-      ? -5 // Braking deceleration
-      : (targetSpeed - this.currentSpeed) * 0.5; // Smooth acceleration
-    
-    this.currentSpeed = Math.max(0, this.currentSpeed + acceleration * deltaTime);
-    
-    // Update RPM based on speed and gear
-    this.currentGear = this.calculateGear();
-    this.currentRPM = this.currentGear === 0 
-      ? 800 // Idle RPM
-      : 800 + (this.currentSpeed / this.profile.maxSpeed) * (this.profile.maxRPM - 800);
-    
-    // Update position
-    const speedMs = this.currentSpeed / 3.6; // km/h to m/s
-    const distanceM = speedMs * deltaTime;
-    this.totalDistance += distanceM / 1000; // Convert to km
-    
-    // Update heading and position (simulate circular motion)
-    this.heading = (this.heading + deltaTime * 10) % 360;
-    const headingRad = (this.heading * Math.PI) / 180;
-    this.position.lat += (distanceM / 111320) * Math.cos(headingRad);
-    this.position.lng += (distanceM / (111320 * Math.cos(this.position.lat * Math.PI / 180))) * Math.sin(headingRad);
-    
-    // Track idle time
-    if (this.currentSpeed < 1 && this.currentRPM < 1000) {
-      this.totalIdleTime += deltaTime / 3600;
+  // 4. SUMO-inspired waypoint GPS routing
+  private updateSumoPosition(deltaTime: number) {
+    const route = SUMO_ROUTES[this.routeIdx % SUMO_ROUTES.length];
+    const from  = route[this.wayptIdx % route.length];
+    const to    = route[(this.wayptIdx + 1) % route.length];
+
+    const segLenM = haversineM(from.lat, from.lng, to.lat, to.lng);
+    const speedMs = this.currentSpeed / 3.6;
+    const distM   = speedMs * deltaTime;
+    this.totalDistance += distM / 1000;
+
+    if (segLenM > 0) this.wayptProg += distM / segLenM;
+    if (this.wayptProg >= 1) {
+      this.wayptProg = 0;
+      this.wayptIdx  = (this.wayptIdx + 1) % route.length;
     }
+    const t = this.wayptProg;
+    this.position.lat  = from.lat + (to.lat - from.lat) * t;
+    this.position.lng  = from.lng + (to.lng - from.lng) * t;
+    const dLat = to.lat - from.lat, dLng = to.lng - from.lng;
+    this.heading = (Math.atan2(dLng, dLat) * 180 / Math.PI + 360) % 360;
   }
 
   private calculateGear(): number {
@@ -266,29 +349,19 @@ export class RealisticSimulator {
   }
 
   private updateWearAndTear(deltaTime: number) {
-    // Wear rates (per hour of operation)
-    const wearRates = {
-      engine: 0.001,
-      transmission: 0.0008,
-      brakes: 0.002,
-      tires: 0.0015,
-      battery: 0.0005,
-      cooling: 0.0007,
-      exhaust: 0.0006,
-      suspension: 0.0009,
-    };
-    
-    // Accelerated wear under harsh conditions
-    const harshFactor = (this.telemetry.harshAcceleration || this.telemetry.harshBraking) ? 2 : 1;
-    
-    this.engineWear = Math.max(0, this.engineWear - wearRates.engine * (deltaTime / 3600) * harshFactor);
-    this.transmissionWear = Math.max(0, this.transmissionWear - wearRates.transmission * (deltaTime / 3600));
-    this.brakeWear = Math.max(0, this.brakeWear - wearRates.brakes * (deltaTime / 3600) * (this.brake > 50 ? 2 : 1));
-    this.tireWear = Math.max(0, this.tireWear - wearRates.tires * (deltaTime / 3600));
-    this.batteryHealth = Math.max(0, this.batteryHealth - wearRates.battery * (deltaTime / 3600));
-    this.coolingSystemHealth = Math.max(0, this.coolingSystemHealth - wearRates.cooling * (deltaTime / 3600));
-    this.exhaustSystemHealth = Math.max(0, this.exhaustSystemHealth - wearRates.exhaust * (deltaTime / 3600));
-    this.suspensionHealth = Math.max(0, this.suspensionHealth - wearRates.suspension * (deltaTime / 3600));
+    // Base wear rates (per hour of operation) calibrated against CMAPSS FD001 curves
+    const harsh  = (this.telemetry.harshAcceleration || this.telemetry.harshBraking) ? 2.5 : 1;
+    const brakFm = this.brake > 50 ? 2.5 : 1;
+    const dt = deltaTime / 3600;
+
+    this.engineWear          = Math.max(0, this.engineWear          - rsWearRate(0.001, this.engineWear)          * dt * harsh);
+    this.transmissionWear    = Math.max(0, this.transmissionWear    - rsWearRate(0.0008,this.transmissionWear)    * dt);
+    this.brakeWear           = Math.max(0, this.brakeWear           - rsWearRate(0.002, this.brakeWear)           * dt * brakFm);
+    this.tireWear            = Math.max(0, this.tireWear            - rsWearRate(0.0015,this.tireWear)            * dt * harsh);
+    this.batteryHealth       = Math.max(0, this.batteryHealth       - rsWearRate(0.0005,this.batteryHealth)       * dt);
+    this.coolingSystemHealth = Math.max(0, this.coolingSystemHealth - rsWearRate(0.0007,this.coolingSystemHealth) * dt);
+    this.exhaustSystemHealth = Math.max(0, this.exhaustSystemHealth - rsWearRate(0.0006,this.exhaustSystemHealth) * dt);
+    this.suspensionHealth    = Math.max(0, this.suspensionHealth    - rsWearRate(0.0009,this.suspensionHealth)    * dt * harsh);
   }
 
   private simulateAnomalies() {
@@ -313,71 +386,97 @@ export class RealisticSimulator {
   }
 
   private updateTelemetry() {
+    const rpmRatio  = this.currentRPM / this.profile.maxRPM;
+    const engDeg    = (100 - this.engineWear)         / 100;
+    const coolDeg   = (100 - this.coolingSystemHealth) / 100;
+    const batDeg    = (100 - this.batteryHealth)       / 100;
+
+    // 2. OU-based sensor readings with CMAPSS-degraded means
+    const muEngTemp = 72 + rpmRatio * 28 + engDeg * 14;
+    const muCoolant = muEngTemp * 0.90 + coolDeg * 5;
+    const muOilPsi  = 32 + rpmRatio * 36 - engDeg * 10;
+    const muBatV    = 12.6 + rpmRatio * 1.6 - batDeg * 0.5;
+
+    const prevEngT  = this.telemetry.engineTemperature || muEngTemp;
+    const prevCool  = this.telemetry.coolantTemp || muCoolant;
+    const prevOil   = this.telemetry.oilPressure || muOilPsi;
+    const prevBatV  = this.telemetry.batteryVoltage || muBatV;
+
     const acceleration = this.throttle > 50 ? (this.throttle - 50) / 10 : 0;
-    
+    const route = SUMO_ROUTES[this.routeIdx % SUMO_ROUTES.length];
+    const altitude = route[this.wayptIdx % route.length].altM +
+                     rsGaussian() * 1.5;
+
     this.telemetry = {
       ...this.telemetry,
       timestamp: new Date().toISOString(),
-      
-      speed: this.currentSpeed,
-      rpm: this.currentRPM,
-      engineTemperature: 70 + (this.currentRPM / this.profile.maxRPM) * 30 + Math.random() * 5,
-      fuelLevel: Math.max(0, this.telemetry.fuelLevel - (this.throttle / 100) * 0.01),
-      
-      engineTorque: (this.currentRPM / this.profile.maxRPM) * 300 * (this.throttle / 100),
-      enginePower: (this.currentRPM / this.profile.maxRPM) * 400 * (this.throttle / 100),
-      oilPressure: 30 + (this.currentRPM / this.profile.maxRPM) * 40,
-      coolantTemp: 70 + (this.currentRPM / this.profile.maxRPM) * 20,
-      
-      gear: this.currentGear,
-      acceleration: acceleration,
-      throttlePosition: this.throttle,
-      brakePosition: this.brake,
-      
-      batteryVoltage: 12.6 + (this.currentRPM / this.profile.maxRPM) * 1.8,
-      batteryCharge: this.batteryHealth,
-      alternatorLoad: 20 + (this.currentRPM / this.profile.maxRPM) * 60,
-      
-      tirePressureFrontLeft: 32 + Math.random() * 2 - 1,
-      tirePressureFrontRight: 32 + Math.random() * 2 - 1,
-      tirePressureRearLeft: 32 + Math.random() * 2 - 1,
-      tirePressureRearRight: 32 + Math.random() * 2 - 1,
-      tireTemperatureFrontLeft: 20 + this.currentSpeed * 0.3,
+
+      speed:             this.currentSpeed,
+      rpm:               this.currentRPM,
+      engineTemperature: Math.max(70, rsOU(prevEngT, muEngTemp, 0.18, 0.8 + engDeg * 0.5)),
+      fuelLevel:         Math.max(0, this.telemetry.fuelLevel - (this.throttle / 100) * 0.01),
+
+      engineTorque:  rpmRatio * 300 * (this.throttle / 100),
+      enginePower:   rpmRatio * 400 * (this.throttle / 100),
+      oilPressure:   Math.max(15, rsOU(prevOil,  muOilPsi,  0.25, 0.8)),
+      coolantTemp:   Math.max(70, rsOU(prevCool, muCoolant, 0.15, 0.6 + coolDeg * 0.4)),
+
+      gear:              this.currentGear,
+      acceleration:      acceleration,
+      throttlePosition:  this.throttle,
+      brakePosition:     this.brake,
+
+      batteryVoltage:    Math.max(11.0, rsOU(prevBatV, muBatV, 0.30, 0.04 + batDeg * 0.02)),
+      batteryCharge:     this.batteryHealth,
+      alternatorLoad:    20 + rpmRatio * 60,
+
+      // OU-noise tire pressures with tireWear-driven mean reduction
+      tirePressureFrontLeft:  Math.max(26, rsOU(this.telemetry.tirePressureFrontLeft  || 32, 32 - (100-this.tireWear)*0.04, 0.08, 0.12)),
+      tirePressureFrontRight: Math.max(26, rsOU(this.telemetry.tirePressureFrontRight || 32, 32 - (100-this.tireWear)*0.04, 0.08, 0.12)),
+      tirePressureRearLeft:   Math.max(26, rsOU(this.telemetry.tirePressureRearLeft   || 32, 32 - (100-this.tireWear)*0.04, 0.08, 0.12)),
+      tirePressureRearRight:  Math.max(26, rsOU(this.telemetry.tirePressureRearRight  || 32, 32 - (100-this.tireWear)*0.04, 0.08, 0.12)),
+      tireTemperatureFrontLeft:  20 + this.currentSpeed * 0.3,
       tireTemperatureFrontRight: 20 + this.currentSpeed * 0.3,
-      tireTemperatureRearLeft: 20 + this.currentSpeed * 0.3,
-      tireTemperatureRearRight: 20 + this.currentSpeed * 0.3,
-      
-      brakePadWearFront: this.brakeWear,
-      brakePadWearRear: this.brakeWear * 0.7,
-      brakeFluidLevel: 100 - (100 - this.brakeWear) * 0.1,
-      
-      transmissionTemp: 30 + (this.currentRPM / this.profile.maxRPM) * 50,
-      transmissionFluidLevel: this.transmissionWear,
-      
-      latitude: this.position.lat,
+      tireTemperatureRearLeft:   20 + this.currentSpeed * 0.3,
+      tireTemperatureRearRight:  20 + this.currentSpeed * 0.3,
+
+      brakePadWearFront:   this.brakeWear,
+      brakePadWearRear:    this.brakeWear * 0.7,
+      brakeFluidLevel:     100 - (100 - this.brakeWear) * 0.1,
+
+      transmissionTemp:        30 + rpmRatio * 50,
+      transmissionFluidLevel:  this.transmissionWear,
+
+      latitude:  this.position.lat,
       longitude: this.position.lng,
-      altitude: 10 + Math.random() * 20,
-      heading: this.heading,
-      
-      harshBraking: this.brake > 80 && this.currentSpeed > 40,
+      altitude:  altitude,
+      heading:   this.heading,
+
+      harshBraking:      this.brake > 80 && this.currentSpeed > 40,
       harshAcceleration: acceleration > 3,
-      harshCornering: false,
-      drivingScore: this.calculateDrivingScore(),
-      ecoScore: this.calculateEcoScore(),
-      
+      harshCornering:    false,
+      drivingScore:      this.calculateDrivingScore(),
+      ecoScore:          this.calculateEcoScore(),
+
       componentHealth: {
-        engine: this.engineWear,
+        engine:       this.engineWear,
         transmission: this.transmissionWear,
-        brakes: this.brakeWear,
-        tires: this.tireWear,
-        battery: this.batteryHealth,
-        cooling: this.coolingSystemHealth,
-        exhaust: this.exhaustSystemHealth,
-        suspension: this.suspensionHealth,
+        brakes:       this.brakeWear,
+        tires:        this.tireWear,
+        battery:      this.batteryHealth,
+        cooling:      this.coolingSystemHealth,
+        exhaust:      this.exhaustSystemHealth,
+        suspension:   this.suspensionHealth,
       },
-      
+
       totalOperatingHours: this.totalOperatingTime,
-      totalDistanceKm: this.totalDistance,
+      totalDistanceKm:     this.totalDistance,
+      totalIdleTime:       this.totalIdleTime,
+      totalFuelConsumed:   this.totalFuelUsed,
+      averageFuelEconomy:  this.totalDistance > 0 ? this.totalFuelUsed / this.totalDistance * 100 : 8.5,
+    };
+    this.updateMaintenancePredictions();
+  }
       totalIdleTime: this.totalIdleTime,
       totalFuelConsumed: this.totalFuelUsed,
       averageFuelEconomy: this.totalDistance > 0 ? this.totalFuelUsed / this.totalDistance * 100 : 8.5,

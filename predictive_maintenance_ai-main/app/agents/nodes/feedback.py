@@ -1,25 +1,5 @@
-import os
-from dotenv import load_dotenv
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from app.agents.state import AgentState
-
-# --- 1. LOAD ENVIRONMENT VARIABLES ---
-load_dotenv() # This reads the .env file
-
-# --- 2. FETCH KEY FROM ENV ---
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-if not groq_api_key:
-    # Stop the server or warn if the key is missing
-    raise ValueError("❌ ERROR: GROQ_API_KEY is missing from .env file!")
-
-# --- 3. SETUP GROQ LLM ---
-llm = ChatOpenAI(
-    model="llama-3.3-70b-versatile",
-    base_url="https://api.groq.com/openai/v1",
-    api_key=groq_api_key
-)
+from app.agents.llm_gateway import invoke_with_policy
 
 def feedback_node(state: AgentState) -> AgentState:
     print("⭐ [Feedback] Service completed. Requesting customer review...")
@@ -44,13 +24,15 @@ def feedback_node(state: AgentState) -> AgentState:
     """
 
     try:
-        # Generate text using Groq
-        response = llm.invoke([HumanMessage(content=prompt)])
-        state["feedback_request"] = response.content
+        # Generate text using shared LLM gateway
+        content, model_used = invoke_with_policy(prompt, profile="feedback")
+        state.setdefault("model_used_by_node", {})["feedback"] = model_used
+        state["feedback_request"] = content
         print("✅ [Feedback] Follow-up generated successfully.")
         
     except Exception as e:
         print(f"❌ Feedback Agent Error: {e}")
+        state.setdefault("model_used_by_node", {})["feedback"] = "error"
         # Fallback text if LLM fails
         state["feedback_request"] = "How was your service? Please rate us 1-5."
 

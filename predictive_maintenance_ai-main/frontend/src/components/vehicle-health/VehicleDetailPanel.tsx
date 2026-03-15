@@ -11,6 +11,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import ReactMarkdown from 'react-markdown'; 
 
 import { api, TelematicsData, AnalysisResult } from '../../services/api';
+import { stream } from '../../services/stream';
 import { ServiceBookingModal } from './ServiceBookingModal';
 
 // --- IMAGE HELPER ---
@@ -39,6 +40,43 @@ interface VehicleDetailPanelProps {
   onClose: () => void;
 }
 
+const STREAM_CONNECTED_POLL_MS = 15000;
+const STREAM_FALLBACK_POLL_MS = 2000;
+const STREAM_STALE_AFTER_MS = 7000;
+
+const normalizeVehicleId = (value: unknown): string => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    return value.trim().toUpperCase();
+};
+
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeMetric = (value: unknown, fallback: number, digits = 1): number => {
+    const parsed = toFiniteNumber(value, fallback);
+    const factor = 10 ** digits;
+    return Math.round(parsed * factor) / factor;
+};
+
+const formatMetric = (value: unknown, digits = 1): string => {
+    const normalized = normalizeMetric(value, 0, digits);
+    return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(digits);
+};
+
+const normalizeTelematicsSnapshot = (data: TelematicsData): TelematicsData => {
+    return {
+        ...data,
+        engine_temp_c: normalizeMetric(data.engine_temp_c, 0),
+        oil_pressure_psi: normalizeMetric(data.oil_pressure_psi, 0),
+        battery_voltage: normalizeMetric(data.battery_voltage, 24),
+        rpm: Math.round(toFiniteNumber(data.rpm, 0)),
+    };
+};
+
 export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelProps) {
   const [telematics, setTelematics] = useState<TelematicsData | null>(null);
   const [metadata, setMetadata] = useState<any>(null); 
@@ -46,8 +84,26 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]); 
   const [showBooking, setShowBooking] = useState(false);
+    const [hasFreshStream, setHasFreshStream] = useState(false);
+    const staleStreamTimerRef = useRef<number | null>(null);
   
   const hasAutoRun = useRef(false);
+
+    const clearStaleStreamTimer = useCallback(() => {
+        if (staleStreamTimerRef.current !== null) {
+            window.clearTimeout(staleStreamTimerRef.current);
+            staleStreamTimerRef.current = null;
+        }
+    }, []);
+
+    const markStreamHeartbeat = useCallback(() => {
+        setHasFreshStream(true);
+        clearStaleStreamTimer();
+        staleStreamTimerRef.current = window.setTimeout(() => {
+            setHasFreshStream(false);
+            staleStreamTimerRef.current = null;
+        }, STREAM_STALE_AFTER_MS);
+    }, [clearStaleStreamTimer]);
 
   // --- AI RUNNER ---
   const handleRunAI = useCallback(async (auto = false) => {
@@ -63,77 +119,164 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
     setLoading(false);
   }, [vehicleId, loading]);
 
-  // --- FETCH LOOP (WITH ABORT CONTROLLER) ---
-  useEffect(() => {
-    const controller = new AbortController();
-    let isMounted = true;
-    let intervalId: NodeJS.Timeout;
+    const appendChartPoint = useCallback((data: TelematicsData) => {
+        setChartData(prev => {
+            const newPoint = {
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                engineTemp: normalizeMetric(data.engine_temp_c, 0),
+                oilPressure: normalizeMetric(data.oil_pressure_psi, 0),
+                battery: normalizeMetric(data.battery_voltage, 24),
+            };
+            return [...prev, newPoint].slice(-20);
+        });
+    }, []);
 
+    const fetchMetadata = useCallback(async () => {
+        try {
+            const fleet = await api.getFleetStatus();
+            const car: any = fleet.find((v: any) => v.vin === vehicleId);
+
+            if (car) {
+                setMetadata(car);
+            } else {
+                setMetadata({
+                    vin: vehicleId,
+                    model: 'Unknown Model',
+                    registration_no: 'N/A',
+                    status: 'Active',
+                    owners: { full_name: 'Unknown', phone_number: '', address: '' }
+                });
+            }
+        } catch (err) {
+            console.error('Meta fetch error', err);
+        }
+    }, [vehicleId]);
+
+    const fetchLiveTelematics = useCallback(async () => {
+        try {
+            const data = await api.getTelematics(vehicleId);
+            if (!data) {
+                return;
+            }
+
+            const normalizedData = normalizeTelematicsSnapshot(data);
+            setTelematics(normalizedData);
+            appendChartPoint(normalizedData);
+        } catch {
+            // Silent error for polling fallback
+        }
+    }, [appendChartPoint, vehicleId]);
+
+    // --- RESET + INITIAL LOAD ---
+  useEffect(() => {
     console.log(`🚀 SWITCHING TO: ${vehicleId}`);
 
-    // Initial Reset for Loader
+        hasAutoRun.current = false;
     setMetadata(null);
     setTelematics(null);
     setChartData([]);
     setAnalysis(null);
+    setHasFreshStream(false);
+    clearStaleStreamTimer();
 
-    // 1. Fetch Metadata (Car & Owner)
-    const fetchMetadata = async () => {
-        if (!isMounted) return;
-        try {
-            const fleet = await api.getFleetStatus();
-            const car: any = fleet.find((v: any) => v.vin === vehicleId);
-            
-            if (isMounted) {
-                if (car) {
-                    setMetadata(car);
-                } else {
-                    setMetadata({
-                        vin: vehicleId,
-                        model: "Unknown Model",
-                        registration_no: "N/A",
-                        status: "Active",
-                        owners: { full_name: "Unknown", phone_number: "", address: "" }
-                    });
-                }
+        void fetchMetadata();
+        void fetchLiveTelematics();
+    }, [clearStaleStreamTimer, fetchLiveTelematics, fetchMetadata, vehicleId]);
+
+    // --- STREAM SUBSCRIPTION ---
+    useEffect(() => {
+        stream.start();
+        let isActive = true;
+        const selectedVehicleId = normalizeVehicleId(vehicleId);
+
+        const unsubscribeConnection = stream.subscribeConnection((connected) => {
+            if (!isActive) {
+                return;
             }
-        } catch (err) { 
-            console.error("Meta fetch error", err); 
-        }
-    };
+            if (!connected) {
+                clearStaleStreamTimer();
+                setHasFreshStream(false);
+            }
+        });
 
-    // 2. Fetch Live Telematics
-    const fetchLive = async () => {
-      if (!isMounted) return;
-      try {
-        const data = await api.getTelematics(vehicleId);
-        if (isMounted && data) {
-            setTelematics(data);
-            setChartData(prev => {
-                const newPoint = {
-                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-                    engineTemp: data.engine_temp_c,
-                    oilPressure: data.oil_pressure_psi,
-                    battery: data.battery_voltage || 24.0,
-                };
-                return [...prev, newPoint].slice(-20); 
-            });
-        }
-      } catch (err) {
-          // Silent error
-      }
-    };
+        const unsubscribeEvents = stream.subscribe((event) => {
+            const payload = event.payload ?? {};
+            const eventVehicleId = normalizeVehicleId(payload.vehicle_id);
 
-    fetchMetadata();
-    fetchLive(); 
-    intervalId = setInterval(fetchLive, 2000); 
-    
-    return () => {
-        isMounted = false;
-        clearInterval(intervalId);
-        controller.abort(); 
-    };
-  }, [vehicleId]);
+            if (!eventVehicleId || eventVehicleId !== selectedVehicleId) {
+                return;
+            }
+
+            if (event.topic === 'telemetry.latest') {
+                markStreamHeartbeat();
+                setTelematics((previous) => {
+                    const nextSnapshot = normalizeTelematicsSnapshot({
+                        vehicle_id: eventVehicleId,
+                        engine_temp_c: toFiniteNumber(payload.engine_temp_c, previous?.engine_temp_c ?? 0),
+                        oil_pressure_psi: toFiniteNumber(payload.oil_pressure_psi, previous?.oil_pressure_psi ?? 0),
+                        rpm: toFiniteNumber(payload.rpm, previous?.rpm ?? 0),
+                        battery_voltage: toFiniteNumber(payload.battery_voltage, previous?.battery_voltage ?? 24),
+                        active_dtc_codes: previous?.active_dtc_codes,
+                    });
+
+                    appendChartPoint(nextSnapshot);
+                    return nextSnapshot;
+                });
+                return;
+            }
+
+            if (event.topic === 'anomaly.event') {
+                setAnalysis((previous) => {
+                    if (!previous) {
+                        return previous;
+                    }
+
+                    return {
+                        ...previous,
+                        risk_score: toFiniteNumber(payload.risk_score, previous.risk_score),
+                        risk_level: String(payload.risk_level ?? previous.risk_level),
+                    };
+                });
+                return;
+            }
+
+            if (event.topic === 'analysis.completed') {
+                void api.getInteractionLog(vehicleId).then((interaction) => {
+                    if (!isActive || !interaction) {
+                        return;
+                    }
+
+                    const bookingId = typeof payload.booking_id === 'string' ? payload.booking_id : interaction.booking_id;
+
+                    setAnalysis((previous) => ({
+                        ...(previous || interaction),
+                        ...interaction,
+                        booking_id: bookingId,
+                    }));
+                });
+            }
+        });
+
+        return () => {
+            isActive = false;
+            clearStaleStreamTimer();
+            unsubscribeConnection();
+            unsubscribeEvents();
+        };
+    }, [appendChartPoint, clearStaleStreamTimer, markStreamHeartbeat, vehicleId]);
+
+    // --- POLLING FALLBACK / PERIODIC RECONCILIATION ---
+    useEffect(() => {
+        const intervalMs = hasFreshStream ? STREAM_CONNECTED_POLL_MS : STREAM_FALLBACK_POLL_MS;
+
+        const intervalId = window.setInterval(() => {
+            void fetchLiveTelematics();
+        }, intervalMs);
+
+        return () => {
+            window.clearInterval(intervalId);
+        };
+    }, [fetchLiveTelematics, hasFreshStream]);
 
   // --- AUTO TRIGGER AI ---
   useEffect(() => {
@@ -183,7 +326,13 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
         </div>
         <div className="flex gap-2">
             <Badge variant="outline" className="px-3 py-1 bg-slate-100">
-                {telematics ? <span className="text-green-600 flex items-center gap-1">● Live Stream</span> : "Connecting..."}
+                                {hasFreshStream ? (
+                                    <span className="text-green-600 flex items-center gap-1">● Stream Connected</span>
+                                ) : telematics ? (
+                                    <span className="text-amber-600 flex items-center gap-1">● Polling Fallback</span>
+                                ) : (
+                                    'Connecting...'
+                                )}
             </Badge>
             <Button onClick={onClose} variant="secondary">Close</Button>
         </div>
@@ -296,7 +445,7 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                                 <Thermometer className="w-4 h-4 text-red-500"/> Engine Temp
                             </span>
                             <span className={`font-mono font-bold text-lg ${(telematics?.engine_temp_c ?? 0) > 105 ? "text-red-600 animate-pulse" : "text-slate-900"}`}>
-                                {telematics?.engine_temp_c ?? "--"}°C
+                                {telematics ? `${formatMetric(telematics.engine_temp_c)}°C` : "--"}
                             </span>
                         </div>
                         <div className="flex justify-between py-3 border-b border-slate-100 items-center">
@@ -304,7 +453,7 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                                 <Droplets className="w-4 h-4 text-amber-500"/> Oil Pressure
                             </span>
                             <span className={`font-mono font-bold text-lg ${(telematics?.oil_pressure_psi ?? 0) < 20 ? "text-red-600" : "text-slate-900"}`}>
-                                {telematics?.oil_pressure_psi ?? "--"} PSI
+                                {telematics ? `${formatMetric(telematics.oil_pressure_psi)} PSI` : "--"}
                             </span>
                         </div>
                         <div className="flex justify-between py-3 border-b border-slate-100 items-center">
@@ -312,7 +461,7 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                                 <Zap className="w-4 h-4 text-yellow-500"/> Battery
                             </span>
                             <span className="font-mono font-bold text-slate-900 text-lg">
-                                {telematics?.battery_voltage ?? "--"} V
+                                {telematics ? `${formatMetric(telematics.battery_voltage)} V` : "--"}
                             </span>
                         </div>
                         <div className="flex justify-between py-3 items-center">
@@ -320,7 +469,7 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                                 <Gauge className="w-4 h-4 text-blue-500"/> RPM
                             </span>
                             <span className="font-mono font-bold text-slate-900 text-lg">
-                                {telematics?.rpm ?? "--"}
+                                {telematics ? formatMetric(telematics.rpm, 0) : "--"}
                             </span>
                         </div>
                     </CardContent>

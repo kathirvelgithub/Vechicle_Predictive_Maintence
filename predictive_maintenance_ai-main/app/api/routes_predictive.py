@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from database import supabase  # ✅ DB Client
+from app.services.live_stream import stream_manager
 
 # ✅ IMPORT YOUR AGENT
 try:
@@ -33,7 +34,15 @@ class AnalyzeResponse(BaseModel):
     customer_script: Optional[str] = None
     booking_id: Optional[str] = None
     manufacturing_insights: Optional[str] = None
-    ueba_alerts: Optional[List[Dict[str, Any]]] = []
+    ueba_alerts: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    run_id: Optional[str] = None
+    orchestration_route: Optional[str] = None
+    route_reason: Optional[str] = None
+    execution_started_at: Optional[str] = None
+    execution_finished_at: Optional[str] = None
+    node_statuses: Optional[Dict[str, str]] = Field(default_factory=dict)
+    node_latency_ms: Optional[Dict[str, int]] = Field(default_factory=dict)
+    model_used_by_node: Optional[Dict[str, str]] = Field(default_factory=dict)
 
 def make_serializable(obj):
     if isinstance(obj, dict):
@@ -153,6 +162,15 @@ async def predict_failure(request: PredictiveRequest):
 
         # 2. PREPARE STATE (Same as your mock logic)
         initial_state = {
+            "run_id": "",
+            "trigger_source": str((request.metadata or {}).get("source") or "api_predictive_run"),
+            "orchestration_route": "",
+            "route_reason": "",
+            "execution_started_at": None,
+            "execution_finished_at": None,
+            "node_statuses": {},
+            "node_latency_ms": {},
+            "model_used_by_node": {},
             "vehicle_id": request.vehicle_id,
             "vin": None,
             "vehicle_metadata": request.metadata,
@@ -192,6 +210,21 @@ async def predict_failure(request: PredictiveRequest):
         except Exception as db_err:
             print(f"⚠️ Warning: DB sync failed: {db_err}")
 
+        await stream_manager.broadcast(
+            "analysis.completed",
+            {
+                "vehicle_id": result.get("vehicle_id", request.vehicle_id),
+                "risk_score": result.get("risk_score", 0),
+                "risk_level": str(result.get("risk_level", "LOW")).upper(),
+                "booking_id": result.get("booking_id"),
+                "source": "manual-predictive-run",
+                "run_id": result.get("run_id"),
+                "orchestration_route": result.get("orchestration_route"),
+                "node_statuses": result.get("node_statuses", {}),
+                "model_used_by_node": result.get("model_used_by_node", {}),
+            },
+        )
+
         # 5. RETURN RESPONSE
         return AnalyzeResponse(
             vehicle_id=result["vehicle_id"],
@@ -201,7 +234,15 @@ async def predict_failure(request: PredictiveRequest):
             customer_script=result.get("customer_script"),
             booking_id=result.get("booking_id"),
             manufacturing_insights=result.get("manufacturing_recommendations"),
-            ueba_alerts=ueba_list
+            ueba_alerts=ueba_list,
+            run_id=result.get("run_id"),
+            orchestration_route=result.get("orchestration_route"),
+            route_reason=result.get("route_reason"),
+            execution_started_at=result.get("execution_started_at"),
+            execution_finished_at=result.get("execution_finished_at"),
+            node_statuses=result.get("node_statuses", {}),
+            node_latency_ms=result.get("node_latency_ms", {}),
+            model_used_by_node=result.get("model_used_by_node", {}),
         )
 
     except Exception as e:

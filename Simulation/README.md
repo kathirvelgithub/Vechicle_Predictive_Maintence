@@ -2,6 +2,28 @@
 
 A sophisticated real-time vehicle simulation platform with AI-powered predictive maintenance capabilities, featuring WebSocket streaming and an attractive modern UI.
 
+Telemetry Generation Algorithms
+You're using 3 main algorithms:
+
+1. Markov Driving Cycle State Machine 🚗
+Models realistic driving patterns: idle, city, highway, acceleration, braking
+Transition probability matrix with state-specific dwell times
+Each state has target parameters (speed, RPM, engine load)
+Example: From highway → 72% chance stay, 12% accelerate, 10% city
+2. Ornstein-Uhlenbeck (OU) Noise Process 📊
+Formula: dX = θ(μ − X) + σ·ε where ε ~ N(0,1)
+More realistic than simple random noise - parameters naturally revert to target means
+Per-parameter tuning: speed (θ=0.15), RPM (θ=0.20), battery (θ=0.30), etc.
+Box-Muller Gaussian noise generation for realistic stochastic behavior
+3. NASA CMAPSS Piecewise Wear Model 🔧
+Based on NASA's Computational Maintenance And Prognostics Simulation Set
+Component health degrades non-linearly: rate_multiplier = 1 + 2·(1 − health/100)²
+Tracks 5 components: engine, brakes, battery, cooling, tires
+Harsh driving (acceleration/braking) accelerates wear
+As health drops, parameters shift toward failure thresholds
+
+
+
 ## 🚀 Features
 
 ### Real-Time Data Streaming

@@ -6,7 +6,8 @@ from fastapi.staticfiles import StaticFiles
 
 # ✅ FIX 1: Correct Imports matching your file structure (app/api/routes_*.py)
 # You do not have a 'routers' folder, so we import directly from app.api
-from app.api import routes_predictive, routes_telematics, routes_fleet, routes_test, routes_notifications, routes_scheduling
+from app.api import routes_predictive, routes_telematics, routes_fleet, routes_test, routes_notifications, routes_scheduling, routes_stream
+from app.services.escalation_queue import escalation_queue
 
 app = FastAPI(title="Predictive Maintenance AI API")
 
@@ -31,6 +32,17 @@ app.include_router(routes_fleet.router, prefix="/api/fleet", tags=["Fleet"])
 app.include_router(routes_test.router, prefix="/api/test", tags=["Testing"])
 app.include_router(routes_notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(routes_scheduling.router, prefix="/api/scheduling", tags=["Scheduling"])
+app.include_router(routes_stream.router, prefix="/api/stream", tags=["Streaming"])
+
+
+@app.on_event("startup")
+async def startup_event():
+    await escalation_queue.start(worker_count=1)
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await escalation_queue.stop()
 
 @app.get("/")
 def health_check():

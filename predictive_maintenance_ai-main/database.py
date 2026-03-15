@@ -138,6 +138,9 @@ def execute_query(query: str, params: tuple = None, fetch: bool = True):
         
         if fetch:
             results = cursor.fetchall()
+            # Commit write operations that use RETURNING (INSERT/UPDATE/DELETE).
+            # Without this, psycopg2 rolls back on connection close.
+            conn.commit()
             return [dict(row) for row in results]
         else:
             conn.commit()

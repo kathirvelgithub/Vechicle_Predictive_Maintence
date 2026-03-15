@@ -1,0 +1,65 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run Auth Service",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\auth-service && set \"JAVA_HOME=C:\\Program Files\\Java\\jdk-21\" && set \"PATH=%JAVA_HOME%\\bin;%PATH%\" && mvnw.cmd spring-boot:run"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Check Auth Port 8080",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"netstat -ano | findstr :8080"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Run Auth Service Fixed",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\auth-service && set JAVA_HOME=C:\\Program Files\\Java\\jdk-21 && set PATH=%JAVA_HOME%\\bin;%PATH% && mvnw.cmd spring-boot:run"
+			],
+			"isBackground": true
+		},
+		{
+			"label": "Check Auth Port 8080 (retry)",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"netstat -ano | findstr :8080"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Auth Maven Version Check",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\auth-service && set JAVA_HOME=C:\\Program Files\\Java\\jdk-21 && set PATH=%JAVA_HOME%\\bin;%PATH% && mvnw.cmd -v"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "Auth Maven Log Capture",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"cd /d c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\auth-service && set JAVA_HOME=C:\\Program Files\\Java\\jdk-21 && set PATH=%JAVA_HOME%\\bin;%PATH% && mvnw.cmd -v > auth_mvnw_check.log 2>&1"
+			],
+			"isBackground": false
+		}
+	]
+}

@@ -1,28 +1,23 @@
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Union
-import traceback
 
 from fastapi import APIRouter, HTTPException
-from database import supabase  # ✅ DB Client
-from app.domain.risk_rules import calculate_risk_score
 
-# Keep this import for fallback/mock data if DB is empty
+from app.domain.risk_rules import calculate_risk_score
+from app.services.anomaly_detector import evaluate_telematics_anomaly
+from app.services.escalation_queue import escalation_queue
+from app.services.live_stream import stream_manager
+from database import supabase
+
 try:
-    from app.data.repositories import TelematicsRepo 
+    from app.data.repositories import TelematicsRepo
 except ImportError:
     TelematicsRepo = None
 
-# Import the AI agent for auto-trigger
-try:
-    from app.agents.master import master_agent
-except ImportError:
-    master_agent = None
 
 router = APIRouter()
 
-# Track recently analyzed vehicles to avoid flooding
-_recent_auto_analyses: Dict[str, float] = {}
-AUTO_ANALYSIS_COOLDOWN = 60  # seconds between auto-triggers per vehicle
 
 def normalize_dtc_codes(value: Any) -> List[str]:
     if value in (None, "", "None", "Healthy"):
@@ -40,15 +35,43 @@ def normalize_dtc_codes(value: Any) -> List[str]:
         return normalized
     return [str(value)]
 
+
 def _pick(payload: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     for key in keys:
         if key in payload and payload[key] is not None:
             return payload[key]
     return default
 
+
 def _risk_to_score(risk: Any) -> int:
     mapping = {"low": 20, "medium": 45, "high": 75, "critical": 95}
     return mapping.get(str(risk or "low").lower(), 0)
+
+
+def _normalize_timestamp(value: Any) -> str:
+    if value is None:
+        return datetime.utcnow().isoformat()
+
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+        if seconds > 10_000_000_000:
+            seconds /= 1000.0
+        try:
+            return datetime.utcfromtimestamp(seconds).isoformat()
+        except (ValueError, OSError):
+            return datetime.utcnow().isoformat()
+
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return datetime.utcnow().isoformat()
+        try:
+            return datetime.fromisoformat(cleaned.replace("Z", "+00:00")).isoformat()
+        except ValueError:
+            return cleaned
+
+    return datetime.utcnow().isoformat()
+
 
 def build_telematics_log(payload: Dict[str, Any]) -> Dict[str, Any]:
     vehicle_id = _pick(payload, "vehicle_id", "vehicleId")
@@ -62,7 +85,7 @@ def build_telematics_log(payload: Dict[str, Any]) -> Dict[str, Any]:
 
     raw_record = {
         "vehicle_id": vehicle_id,
-        "timestamp_utc": _pick(payload, "timestamp_utc", "timestamp", default=datetime.utcnow().isoformat()),
+        "timestamp_utc": _normalize_timestamp(_pick(payload, "timestamp_utc", "timestamp")),
         "speed_kmh": _pick(payload, "speed_kmh", "speed"),
         "rpm": _pick(payload, "rpm"),
         "engine_temp_c": _pick(payload, "engine_temp_c", "engineTemperature", "engineTemp"),
@@ -95,7 +118,6 @@ def build_telematics_log(payload: Dict[str, Any]) -> Dict[str, Any]:
         "total_operating_hours": _pick(payload, "total_operating_hours", "totalOperatingHours"),
         "anomaly_detected": bool(_pick(payload, "anomaly_detected", "anomalyDetected", default=False)),
         "risk_score": _risk_to_score(_pick(payload, "failureRisk", "risk_level", "maintenanceUrgency")),
-        "raw_payload": payload,
     }
 
     if not raw_record["risk_score"]:
@@ -105,102 +127,156 @@ def build_telematics_log(payload: Dict[str, Any]) -> Dict[str, Any]:
     return raw_record
 
 
-def _should_auto_analyze(vehicle_id: str, risk_score: int) -> bool:
-    """Check if this vehicle warrants auto-analysis (high risk + cooldown passed)."""
-    if risk_score < 40:
-        return False
-    now = datetime.utcnow().timestamp()
-    last = _recent_auto_analyses.get(vehicle_id, 0)
-    if now - last < AUTO_ANALYSIS_COOLDOWN:
-        return False
-    _recent_auto_analyses[vehicle_id] = now
-    return True
+def _safe_risk_level(score: int) -> str:
+    if score >= 75:
+        return "CRITICAL"
+    if score >= 40:
+        return "HIGH"
+    if score >= 20:
+        return "MEDIUM"
+    return "LOW"
 
 
-def _run_auto_analysis(vehicle_id: str, telematics: Dict[str, Any]):
-    """Run the full AI pipeline for a vehicle in background."""
-    if not master_agent:
-        return
+def _stream_telematics_payload(record: Dict[str, Any], anomaly: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "vehicle_id": record.get("vehicle_id"),
+        "timestamp_utc": record.get("timestamp_utc"),
+        "engine_temp_c": record.get("engine_temp_c"),
+        "oil_pressure_psi": record.get("oil_pressure_psi"),
+        "rpm": record.get("rpm"),
+        "battery_voltage": record.get("battery_voltage"),
+        "risk_score": anomaly.get("risk_score", record.get("risk_score", 0)),
+        "risk_level": anomaly.get("risk_level", _safe_risk_level(int(record.get("risk_score") or 0))),
+        "anomaly_level": anomaly.get("anomaly_level", "NORMAL"),
+        "anomaly_detected": bool(anomaly.get("anomaly_detected", False)),
+    }
+
+
+def _upsert_vehicle_live_state(record: Dict[str, Any], anomaly: Dict[str, Any]) -> None:
+    payload = {
+        "vehicle_id": record.get("vehicle_id"),
+        "timestamp_utc": record.get("timestamp_utc"),
+        "speed_kmh": record.get("speed_kmh"),
+        "rpm": record.get("rpm"),
+        "engine_temp_c": record.get("engine_temp_c"),
+        "oil_pressure_psi": record.get("oil_pressure_psi"),
+        "fuel_level_percent": record.get("fuel_level_percent"),
+        "battery_voltage": record.get("battery_voltage"),
+        "active_dtc_codes": record.get("active_dtc_codes"),
+        "risk_score": anomaly.get("risk_score", record.get("risk_score", 0)),
+        "risk_level": anomaly.get("risk_level", _safe_risk_level(int(record.get("risk_score") or 0))),
+        "anomaly_level": anomaly.get("anomaly_level", "NORMAL"),
+        "anomaly_detected": bool(anomaly.get("anomaly_detected", False)),
+        "last_reasons": anomaly.get("reasons", []),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
     try:
-        from app.api.routes_predictive import persist_analysis_outputs, PredictiveRequest
+        updated = supabase.table("vehicle_live_state").update(payload).eq("vehicle_id", record["vehicle_id"]).execute()
+        if updated.get("error"):
+            raise RuntimeError(updated["error"])
+        if not updated.get("data"):
+            inserted = supabase.table("vehicle_live_state").insert(payload).execute()
+            if inserted.get("error"):
+                raise RuntimeError(inserted["error"])
+    except Exception as exc:
+        print(f"⚠️ vehicle_live_state upsert skipped: {exc}")
 
-        initial_state = {
-            "vehicle_id": vehicle_id,
-            "vin": None,
-            "vehicle_metadata": None,
-            "telematics_data": telematics,
-            "detected_issues": [],
-            "risk_score": 0,
-            "risk_level": "LOW",
-            "diagnosis_report": "",
-            "recommended_action": "Wait",
-            "priority_level": "Low",
-            "voice_transcript": [],
-            "manufacturing_recommendations": "",
-            "ueba_alert_triggered": False,
-            "customer_script": "",
-            "customer_decision": "PENDING",
-            "selected_slot": None,
-            "booking_id": None,
-            "scheduled_date": None,
-            "audio_url": None,
-            "audio_available": False,
-            "error_message": None,
-            "feedback_request": None,
-        }
 
-        result = master_agent.invoke(initial_state)
+def _persist_anomaly_event(record: Dict[str, Any], anomaly: Dict[str, Any]) -> None:
+    if not anomaly.get("anomaly_detected"):
+        return
 
-        # Persist results
-        req = PredictiveRequest(
-            vehicle_id=vehicle_id,
-            engine_temp_c=int(telematics.get("engine_temp_c") or 90),
-            oil_pressure_psi=float(telematics.get("oil_pressure_psi") or 40),
-            rpm=int(telematics.get("rpm") or 1500),
-            battery_voltage=float(telematics.get("battery_voltage") or 24),
-            metadata={"source": "auto-trigger", "skip_telematics_persist": True},
-        )
-        persist_analysis_outputs(req, result)
-        print(f"🤖 [Auto-Trigger] AI pipeline completed for {vehicle_id} | Risk: {result.get('risk_score')} | Booking: {result.get('booking_id')}")
-    except Exception as e:
-        print(f"❌ [Auto-Trigger] Failed for {vehicle_id}: {e}")
-        traceback.print_exc()
+    payload = {
+        "vehicle_id": record.get("vehicle_id"),
+        "event_timestamp": record.get("timestamp_utc"),
+        "anomaly_level": anomaly.get("anomaly_level", "WATCH"),
+        "risk_score": anomaly.get("risk_score", record.get("risk_score", 0)),
+        "risk_level": anomaly.get("risk_level", _safe_risk_level(int(record.get("risk_score") or 0))),
+        "reasons": anomaly.get("reasons", []),
+        "telematics_snapshot": record,
+    }
+
+    try:
+        inserted = supabase.table("anomaly_events").insert(payload).execute()
+        if inserted.get("error"):
+            raise RuntimeError(inserted["error"])
+    except Exception as exc:
+        print(f"⚠️ anomaly event persist skipped: {exc}")
+
 
 @router.post("")
 async def ingest_telematics(payload: Union[Dict[str, Any], List[Dict[str, Any]]]):
     records = payload if isinstance(payload, list) else [payload]
-    inserted_vehicle_ids = []
-    auto_triggered = []
+    inserted_vehicle_ids: List[str] = []
+    escalation_enqueued: List[str] = []
+    anomaly_records: List[Dict[str, Any]] = []
 
     try:
         for record in records:
             db_payload = build_telematics_log(record)
-            supabase.table("telematics_logs").insert(db_payload).execute()
-            v_id = db_payload["vehicle_id"]
-            inserted_vehicle_ids.append(v_id)
+            vehicle_id = db_payload["vehicle_id"]
 
-            # Auto-trigger AI pipeline for high-risk telemetry
-            risk_score = db_payload.get("risk_score", 0)
-            if _should_auto_analyze(v_id, risk_score):
-                print(f"🔔 [Auto-Trigger] High risk ({risk_score}) for {v_id} — launching AI pipeline")
-                _run_auto_analysis(v_id, db_payload)
-                auto_triggered.append(v_id)
+            anomaly = await asyncio.to_thread(evaluate_telematics_anomaly, vehicle_id, db_payload)
+            db_payload["risk_score"] = anomaly["risk_score"]
+            db_payload["anomaly_detected"] = anomaly["anomaly_detected"]
 
+            insert_result = await asyncio.to_thread(supabase.table("telematics_logs").insert(db_payload).execute)
+            if insert_result.get("error"):
+                raise RuntimeError(insert_result["error"])
+            inserted_vehicle_ids.append(vehicle_id)
+
+            await asyncio.to_thread(_upsert_vehicle_live_state, db_payload, anomaly)
+            await asyncio.to_thread(_persist_anomaly_event, db_payload, anomaly)
+
+            if anomaly["anomaly_detected"]:
+                anomaly_records.append(
+                    {
+                        "vehicle_id": vehicle_id,
+                        "anomaly_level": anomaly["anomaly_level"],
+                        "risk_level": anomaly["risk_level"],
+                    }
+                )
+                await stream_manager.broadcast(
+                    "anomaly.event",
+                    {
+                        "vehicle_id": vehicle_id,
+                        "anomaly_level": anomaly["anomaly_level"],
+                        "risk_score": anomaly["risk_score"],
+                        "risk_level": anomaly["risk_level"],
+                        "reasons": anomaly["reasons"],
+                    },
+                )
+
+            is_enqueued = await escalation_queue.enqueue(
+                vehicle_id=vehicle_id,
+                telematics=db_payload,
+                anomaly_level=anomaly["anomaly_level"],
+                reasons=anomaly["reasons"],
+            )
+            if is_enqueued:
+                escalation_enqueued.append(vehicle_id)
+
+            await stream_manager.broadcast("telemetry.latest", _stream_telematics_payload(db_payload, anomaly))
+
+        queue_stats = await escalation_queue.stats()
         return {
             "success": True,
             "count": len(inserted_vehicle_ids),
             "vehicle_ids": inserted_vehicle_ids,
-            "auto_analyzed": auto_triggered,
+            "anomalies_detected": anomaly_records,
+            "escalation_enqueued": escalation_enqueued,
+            "queue_stats": queue_stats,
             "timestamp": datetime.utcnow().isoformat(),
         }
     except HTTPException:
         raise
-    except Exception as e:
-        print(f"❌ Error ingesting telemetry: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        print(f"❌ Error ingesting telemetry: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 @router.get("/{vehicle_id}")
-async def get_vehicle_stats(vehicle_id: str):
+def get_vehicle_stats(vehicle_id: str):
     """
     ENTERPRISE LOGIC: 
     1. Try Fetching Live Cloud Data (PostgreSQL)
@@ -208,9 +284,45 @@ async def get_vehicle_stats(vehicle_id: str):
     3. Return Default Zeros
     """
     
-    # 1. ✅ DATABASE ROUTE
+    # 1. Live state table (best for stream-driven UI)
     try:
-        # Fetch the MOST RECENT log for this vehicle
+        response = supabase.table("vehicle_live_state") \
+            .select("*") \
+            .eq("vehicle_id", vehicle_id) \
+            .limit(1) \
+            .execute()
+
+        if response["data"]:
+            latest = response["data"][0]
+            current_temp = latest.get("engine_temp_c", 0)
+            current_oil = latest.get("oil_pressure_psi", 0.0)
+            print(f"☁️ [Telematics] Serving live-state data for {vehicle_id}")
+
+            return {
+                "vehicle_id": vehicle_id,
+
+                "engine_temp": current_temp,
+                "engine_temp_c": current_temp,
+                "oil_pressure": current_oil,
+                "oil_pressure_psi": current_oil,
+                "rpm": latest.get("rpm", 0),
+                "battery_voltage": latest.get("battery_voltage", 0.0),
+                "fuel_level": latest.get("fuel_level_percent", 0),
+
+                "dtc_readable": latest.get("active_dtc_codes", ["Healthy"])[0] 
+                                if latest.get("active_dtc_codes") else "Healthy",
+
+                "status": "Online (Live State)",
+                "risk_score": latest.get("risk_score", 0),
+                "risk_level": latest.get("risk_level", "LOW"),
+                "anomaly_detected": latest.get("anomaly_detected", False),
+            }
+
+    except Exception as e:
+        print(f"⚠️ Live state fetch error for {vehicle_id}: {e}")
+
+    # 2. Latest telematics fallback
+    try:
         response = supabase.table("telematics_logs") \
             .select("*") \
             .eq("vehicle_id", vehicle_id) \
@@ -220,43 +332,38 @@ async def get_vehicle_stats(vehicle_id: str):
 
         if response["data"]:
             latest = response["data"][0]
-            
-            # Extract standard columns
             current_temp = latest.get("engine_temp_c", 0)
             current_oil = latest.get("oil_pressure_psi", 0.0)
-            
-            print(f"☁️ [Telematics] Serving DB Data for {vehicle_id}")
+            print(f"☁️ [Telematics] Serving log fallback for {vehicle_id}")
 
             return {
                 "vehicle_id": vehicle_id,
-                
-                # Gauge Data
-                "engine_temp": current_temp,       
-                "engine_temp_c": current_temp,     
-                "oil_pressure": current_oil,   
+                "engine_temp": current_temp,
+                "engine_temp_c": current_temp,
+                "oil_pressure": current_oil,
                 "oil_pressure_psi": current_oil,
                 "rpm": latest.get("rpm", 0),
                 "battery_voltage": latest.get("battery_voltage", 0.0),
                 "fuel_level": latest.get("fuel_level_percent", 0),
-                
-                # Diagnostics
-                "dtc_readable": latest.get("active_dtc_codes", ["Healthy"])[0] 
+                "dtc_readable": latest.get("active_dtc_codes", ["Healthy"])[0]
                                 if latest.get("active_dtc_codes") else "Healthy",
-                
-                "status": "Online (DB Sync)"
+                "status": "Online (DB Sync)",
+                "risk_score": latest.get("risk_score", 0),
+                "risk_level": _safe_risk_level(int(latest.get("risk_score") or 0)),
+                "anomaly_detected": latest.get("anomaly_detected", False),
             }
-            
+
     except Exception as e:
         print(f"⚠️ DB Fetch Error for {vehicle_id}: {e}")
 
-    # 2. FALLBACK TO REPO (Mock Data)
+    # 3. FALLBACK TO REPO (Mock Data)
     if TelematicsRepo:
         data = TelematicsRepo.get_latest_telematics(vehicle_id)
         if data:
             print(f"💾 [Telematics] Using Static Fallback for {vehicle_id}")
             return data
 
-    # 3. IF TOTALLY MISSING
+    # 4. IF TOTALLY MISSING
     return {
         "vehicle_id": vehicle_id,
         "engine_temp": 0,

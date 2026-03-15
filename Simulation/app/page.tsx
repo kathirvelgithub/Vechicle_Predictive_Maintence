@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Car,
   Brain,
-  ShieldAlert,
   Wrench,
   Loader2,
   Bell,
@@ -17,32 +16,18 @@ import {
   Truck,
 } from 'lucide-react';
 
-import { useSimulation, FleetVehicleState } from '@/hooks/use-simulation';
+import { useSimulation } from '@/hooks/use-simulation';
 import { TelemetryCard, PARAMS } from '@/components/telemetry-card';
 import { TrendCharts } from '@/components/trend-charts';
-
-// ── helper: risk color ─────────────────────────────────────────────
-function riskColor(score: number) {
-  if (score >= 70) return 'red';
-  if (score >= 40) return 'amber';
-  return 'emerald';
-}
-
-function statusBadge(vs: FleetVehicleState) {
-  const s = vs.current?.status;
-  if (!s) return { label: 'Offline', cls: 'bg-zinc-700/40 text-zinc-500' };
-  if (s === 'healthy') return { label: 'Healthy', cls: 'bg-emerald-500/15 text-emerald-400' };
-  if (s === 'warning') return { label: 'Warning', cls: 'bg-amber-500/15 text-amber-400' };
-  return { label: 'Critical', cls: 'bg-red-500/15 text-red-400' };
-}
 
 // ── page ──────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const {
-    running, current, history, alertLog,
+    running, current, history,
     prediction, predictionLoading,
     start, stop, reset,
     fleet, fleetVehicles, selectedVehicle, setSelectedVehicle,
+    overrides, setOverride,
   } = useSimulation();
 
   return (
@@ -99,11 +84,7 @@ export default function Dashboard() {
               )}
             </span>
 
-            {current && (
-              <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full ${current.status === 'healthy' ? 'bg-emerald-500/15 text-emerald-400' : current.status === 'warning' ? 'bg-amber-500/15 text-amber-400' : 'bg-red-500/15 text-red-400'}`}>
-                {current.status}
-              </span>
-            )}
+
           </motion.div>
 
           {/* Controls */}
@@ -134,9 +115,7 @@ export default function Dashboard() {
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
             {fleet.map((vs) => {
-              const badge = statusBadge(vs);
               const isSelected = vs.vehicleId === selectedVehicle;
-              const riskScore = vs.prediction?.risk_score ?? 0;
               return (
                 <button
                   key={vs.vehicleId}
@@ -149,16 +128,12 @@ export default function Dashboard() {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-mono font-bold text-zinc-300">{vs.vehicleId}</span>
-                    <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${badge.cls}`}>{badge.label}</span>
                   </div>
                   <p className="text-[11px] text-zinc-500 truncate mb-2">{vs.model}</p>
-                  {vs.prediction && (
+                  {vs.prediction?.booking_id && (
                     <div className="flex items-center gap-1.5">
-                      <ShieldAlert className={`w-3 h-3 text-${riskColor(riskScore)}-400`} />
-                      <span className={`text-xs font-bold text-${riskColor(riskScore)}-400`}>{riskScore}%</span>
-                      {vs.prediction.booking_id && (
-                        <Calendar className="w-3 h-3 text-blue-400 ml-auto" />
-                      )}
+                      <Calendar className="w-3 h-3 text-blue-400" />
+                      <span className="text-[10px] text-blue-400 font-semibold">Scheduled</span>
                     </div>
                   )}
                   {vs.predictionLoading && <Loader2 className="w-3 h-3 animate-spin text-blue-400 absolute top-2 right-2" />}
@@ -172,10 +147,26 @@ export default function Dashboard() {
         <section>
           <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Car className="w-4 h-4" /> {selectedVehicle} — Live Telemetry
+          {current?.drivingState && (
+            <span className={`ml-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+              current.drivingState === 'idle'         ? 'bg-zinc-700/50 text-zinc-400' :
+              current.drivingState === 'braking'      ? 'bg-red-500/15 text-red-400' :
+              current.drivingState === 'acceleration' ? 'bg-amber-500/15 text-amber-400' :
+              current.drivingState === 'highway'      ? 'bg-blue-500/15 text-blue-400' :
+              'bg-emerald-500/15 text-emerald-400'
+            }`}>{current.drivingState}</span>
+          )}
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {PARAMS.map((p, i) => (
-              <TelemetryCard key={p.key} param={p} history={history} index={i} />
+              <TelemetryCard
+                key={p.key}
+                param={p}
+                history={history}
+                index={i}
+                overrideValue={overrides[p.key as keyof typeof overrides] ?? null}
+                onOverride={setOverride}
+              />
             ))}
           </div>
         </section>
@@ -197,30 +188,9 @@ export default function Dashboard() {
               {predictionLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-400" />}
             </h2>
             {prediction && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Risk Score Card */}
-                <div className={`rounded-2xl border p-6 backdrop-blur-xl ${
-                  prediction.risk_score >= 70 ? 'border-red-500/30 bg-red-500/[0.06]' :
-                  prediction.risk_score >= 40 ? 'border-amber-500/30 bg-amber-500/[0.06]' :
-                  'border-emerald-500/30 bg-emerald-500/[0.06]'
-                }`}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <ShieldAlert className={`w-5 h-5 text-${riskColor(prediction.risk_score)}-400`} />
-                    <span className="text-sm font-semibold text-zinc-300">Risk Assessment</span>
-                  </div>
-                  <div className="text-4xl font-black mb-1">
-                    <span className={`text-${riskColor(prediction.risk_score)}-400`}>{prediction.risk_score}</span>
-                    <span className="text-lg text-zinc-500">/100</span>
-                  </div>
-                  <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full ${
-                    prediction.risk_level === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
-                    prediction.risk_level === 'HIGH' ? 'bg-amber-500/20 text-amber-400' :
-                    'bg-emerald-500/20 text-emerald-400'
-                  }`}>{prediction.risk_level}</span>
-                </div>
-
+              <div className="grid grid-cols-1 gap-4">
                 {/* Diagnosis Card */}
-                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-xl p-6 md:col-span-2">
+                <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-xl p-6">
                   <div className="flex items-center gap-2 mb-3">
                     <Wrench className="w-5 h-5 text-blue-400" />
                     <span className="text-sm font-semibold text-zinc-300">AI Diagnosis</span>
@@ -254,33 +224,6 @@ export default function Dashboard() {
           </motion.section>
         )}
 
-        {/* ── Alert Log ──────────────────────────────────────────── */}
-        {alertLog.length > 0 && (
-          <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}>
-            <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <Bell className="w-4 h-4" /> Fleet Alert Log
-            </h2>
-            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.03] backdrop-blur-xl p-4 max-h-[240px] overflow-y-auto custom-scrollbar space-y-2">
-              {alertLog.slice(0, 20).map((alert, i) => (
-                <div key={`${alert.id}-${i}`} className={`flex items-start gap-3 p-2 rounded-lg ${
-                  alert.type === 'critical' ? 'bg-red-500/[0.06]' :
-                  alert.type === 'warning' ? 'bg-amber-500/[0.06]' : 'bg-white/[0.02]'
-                }`}>
-                  <span className={`mt-0.5 h-2 w-2 rounded-full flex-shrink-0 ${
-                    alert.type === 'critical' ? 'bg-red-500' :
-                    alert.type === 'warning' ? 'bg-amber-500' : 'bg-blue-500'
-                  }`} />
-                  <div className="min-w-0">
-                    <p className="text-xs text-zinc-300">{alert.message}</p>
-                    <p className="text-[10px] text-zinc-600">
-                      {alert.parameter} = {typeof alert.value === 'number' ? alert.value.toFixed(1) : alert.value} · {new Date(alert.timestamp).toLocaleTimeString()}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </motion.section>
-        )}
       </main>
 
       {/* ── footer ────────────────────────────────────────────────── */}

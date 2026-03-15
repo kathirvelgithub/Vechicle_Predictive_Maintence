@@ -1,23 +1,5 @@
-from langchain_core.messages import HumanMessage
 from app.agents.state import AgentState
-import os
-from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI
-
-load_dotenv()
-
-# ✅ UPDATED: Fetch Key from Environment & Use Groq
-# This reads 'GROQ_API_KEY' from your .env file
-groq_api_key = os.getenv("GROQ_API_KEY")
-
-if not groq_api_key:
-    print("❌ ERROR: GROQ_API_KEY not found in .env file")
-
-llm = ChatOpenAI(
-    model="llama-3.3-70b-versatile",
-    base_url="https://api.groq.com/openai/v1",
-    api_key=groq_api_key
-)
+from app.agents.llm_gateway import invoke_with_policy
 
 def manufacturing_node(state: AgentState) -> AgentState:
     """
@@ -64,11 +46,12 @@ def manufacturing_node(state: AgentState) -> AgentState:
 
     # 4. Call LLM
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content
+        content, model_used = invoke_with_policy(prompt, profile="manufacturing")
+        state.setdefault("model_used_by_node", {})["manufacturing"] = model_used
         print("✅ [Manufacturing] CAPA Report Generated.")
     except Exception as e:
         print(f"❌ Manufacturing Agent Error: {e}")
+        state.setdefault("model_used_by_node", {})["manufacturing"] = "error"
         content = "Could not generate engineering report."
 
     # 5. Save to State

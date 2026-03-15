@@ -4,6 +4,7 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import {
   VehicleSimulator,
   TelemetrySnapshot,
+  TelemetryReading,
 } from '@/lib/vehicle-simulator';
 
 const MAX_HISTORY = 60;
@@ -47,8 +48,9 @@ export function useSimulation() {
   const tickCountRef = useRef(0);
   const analysisInFlightRef = useRef<Set<string>>(new Set());
 
-  const [running, setRunning] = useState(false);
+  const [running, setRunning]       = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState(FLEET_VEHICLES[0].id);
+  const [overridesMap, setOverridesMap] = useState<Record<string, Partial<TelemetryReading>>>({}); 
   const [fleet, setFleet] = useState<Map<string, FleetVehicleState>>(() => {
     const m = new Map<string, FleetVehicleState>();
     for (const v of FLEET_VEHICLES) {
@@ -177,12 +179,27 @@ export function useSimulation() {
     setRunning(false);
   }, []);
 
+  useEffect(() => {
+    const autoStartEnabled = (process.env.NEXT_PUBLIC_SIM_AUTO_START ?? 'true').toLowerCase() !== 'false';
+    if (autoStartEnabled && !timerRef.current) {
+      start();
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [start]);
+
   const reset = useCallback(() => {
     stop();
     for (const sim of simulatorsRef.current.values()) {
       sim.reset();
     }
     tickCountRef.current = 0;
+    setOverridesMap({});
     setFleet(prev => {
       const next = new Map(prev);
       for (const [vid, vs] of next) {
@@ -193,6 +210,17 @@ export function useSimulation() {
     setAlertLog([]);
   }, [stop]);
 
+  // ── Manual parameter override ─────────────────────────────────────────
+  const setOverride = useCallback((key: keyof TelemetryReading, value: number | null) => {
+    const sim = simulatorsRef.current.get(selectedVehicle);
+    if (sim) sim.setOverride(key, value);
+    setOverridesMap(prev => {
+      const cur = { ...prev[selectedVehicle] };
+      if (value === null) { delete cur[key]; } else { cur[key] = value; }
+      return { ...prev, [selectedVehicle]: cur };
+    });
+  }, [selectedVehicle]);
+
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -200,11 +228,12 @@ export function useSimulation() {
   }, []);
 
   // Derive the currently selected vehicle's data
-  const selected = fleet.get(selectedVehicle);
-  const current = selected?.current ?? null;
-  const history = selected?.history ?? [];
-  const prediction = selected?.prediction ?? null;
+  const selected      = fleet.get(selectedVehicle);
+  const current       = selected?.current ?? null;
+  const history       = selected?.history ?? [];
+  const prediction    = selected?.prediction ?? null;
   const predictionLoading = selected?.predictionLoading ?? false;
+  const overrides     = overridesMap[selectedVehicle] ?? {};
 
   return {
     running,
@@ -221,5 +250,8 @@ export function useSimulation() {
     fleetVehicles: FLEET_VEHICLES,
     selectedVehicle,
     setSelectedVehicle,
+    // Override API
+    overrides,
+    setOverride,
   };
 }

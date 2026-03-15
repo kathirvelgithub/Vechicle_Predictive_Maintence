@@ -2,27 +2,11 @@ import os
 import json
 import random
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
-from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from gtts import gTTS
 
 from app.agents.state import AgentState
-
-# ------------------------------------------------------------------
-# 1️⃣ ENV + LLM SETUP
-# ------------------------------------------------------------------
-
-load_dotenv()
-
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-
-llm = ChatOpenAI(
-    model="llama-3.3-70b-versatile",
-    base_url="https://api.groq.com/openai/v1",
-    api_key=GROQ_API_KEY
-)
+from app.agents.llm_gateway import invoke_with_policy
 
 # ------------------------------------------------------------------
 # 2️⃣ PATH RESOLUTION 
@@ -117,8 +101,9 @@ Generate 5-8 exchanges. Return ONLY the JSON array, nothing else.
         # 3.4 CALL LLM
         # ----------------------------------------------------------
 
-        response = llm.invoke([HumanMessage(content=prompt)])
-        content = response.content.strip()
+        content, model_used = invoke_with_policy(prompt, profile="voice")
+        state.setdefault("model_used_by_node", {})["voice_interaction"] = model_used
+        content = content.strip()
 
         # Remove accidental markdown
         if content.startswith("```"):
@@ -184,6 +169,7 @@ Generate 5-8 exchanges. Return ONLY the JSON array, nothing else.
         # 3.8 ERROR FALLBACK (FINAL CRITICAL FIX)
         # ----------------------------------------------------------
         print(f"❌ Voice Agent Failed: {e}")
+        state.setdefault("model_used_by_node", {})["voice_interaction"] = "error"
 
         # Prepare safe fallback transcript
         state["voice_transcript"] = [

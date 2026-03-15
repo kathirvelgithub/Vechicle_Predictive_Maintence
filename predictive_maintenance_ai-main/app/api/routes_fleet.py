@@ -1,4 +1,5 @@
 import uuid
+import math
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -32,7 +33,7 @@ class VehicleSummary(BaseModel):
     action: str
     scheduled_date: Optional[str] = None
     voice_transcript: Optional[List[VoiceLogEntry]] = None
-    engine_temp: Optional[int] = 0
+    engine_temp: Optional[float] = 0.0
     oil_pressure: Optional[float] = 0.0
     battery_voltage: Optional[float] = 0.0
     
@@ -62,6 +63,22 @@ def resolve_location(lat, lon):
     if 10.5 <= lat <= 11.5: return "Coimbatore, TN" 
     if 9.5 <= lat <= 10.5: return "Madurai, TN"
     return f"{lat:.2f}, {lon:.2f}"
+
+
+def _safe_number(value: Any, default: float = 0.0) -> float:
+    try:
+        number = float(value)
+        return number if math.isfinite(number) else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _round_metric(value: Any, default: float = 0.0, digits: int = 1) -> float:
+    return round(_safe_number(value, default), digits)
+
+
+def _safe_probability(value: Any) -> int:
+    return int(round(_safe_number(value, 0.0)))
 
 # --- 3. ENDPOINTS ---
 
@@ -109,8 +126,16 @@ async def get_fleet_status():
 
         for vehicle in vehicles_response["data"]:
             v_id = vehicle['vehicle_id']  # ✅ Fixed: use vehicle_id (VARCHAR)
+
+            # 2. Prefer live-state for stream-first UI
+            live_response = supabase.table("vehicle_live_state") \
+                .select("*") \
+                .eq("vehicle_id", v_id) \
+                .limit(1) \
+                .execute()
+            latest_live = live_response["data"][0] if live_response["data"] else {}
             
-            # 2. Get Latest Log for this vehicle
+            # 3. Fallback to latest log for additional fields like location/raw payload
             log_response = supabase.table("telematics_logs") \
                 .select("*") \
                 .eq("vehicle_id", v_id) \
@@ -119,9 +144,10 @@ async def get_fleet_status():
                 .execute()
             
             latest_log = log_response["data"][0] if log_response["data"] else {}
+            latest_snapshot = latest_live or latest_log
             
             # Parse raw_payload safely
-            raw_ai = latest_log.get("raw_payload") or {}
+            raw_ai = latest_snapshot.get("raw_payload") or latest_log.get("raw_payload") or {}
             if isinstance(raw_ai, str):
                 import json
                 try:
@@ -130,18 +156,19 @@ async def get_fleet_status():
                     raw_ai = {}
             
             # --- MAP DB COLUMNS ---
-            temp = latest_log.get("engine_temp_c", 0)   
-            oil = latest_log.get("oil_pressure_psi", 0.0)
-            batt = latest_log.get("battery_voltage", 0.0)
+            temp = _round_metric(latest_snapshot.get("engine_temp_c"), 0.0)
+            oil = _round_metric(latest_snapshot.get("oil_pressure_psi"), 0.0)
+            batt = _round_metric(latest_snapshot.get("battery_voltage"), 0.0)
             
             # Issues
-            db_dtcs = latest_log.get("active_dtc_codes") or []
+            db_dtcs = latest_snapshot.get("active_dtc_codes") or []
             failure = db_dtcs[0] if db_dtcs else "System Healthy"
             if failure == "System Healthy":
                 ai_issues = raw_ai.get("detected_issues") or ["System Healthy"]
                 failure = ai_issues[0] if ai_issues else "System Healthy"
 
-            prob = raw_ai.get("risk_score", 0) 
+            prob = latest_snapshot.get("risk_score", raw_ai.get("risk_score", 0))
+            numeric_prob = _safe_number(prob, 0.0)
             
             # Status & Action
             db_status = vehicle.get("status", "active")
@@ -149,15 +176,21 @@ async def get_fleet_status():
 
             if db_status == "scheduled":
                 action = "Service Booked"
-            elif isinstance(prob, (int, float)) and prob > 80:
+            elif numeric_prob > 80:
                 action = "Critical Alert"
             else:
                 action = "Monitoring"
             
             # Location - use latitude/longitude columns ✅
+            latitude = latest_log.get("latitude") if latest_log else None
+            longitude = latest_log.get("longitude") if latest_log else None
+            if (latitude is None or longitude is None) and isinstance(raw_ai, dict):
+                latitude = raw_ai.get("latitude", latitude)
+                longitude = raw_ai.get("longitude", longitude)
+
             real_location = resolve_location(
-                latest_log.get("latitude"), 
-                latest_log.get("longitude")
+                latitude,
+                longitude
             )
 
             # Transcripts
@@ -180,15 +213,15 @@ async def get_fleet_status():
                 vin=v_id,
                 model=vehicle.get("model", "Unknown Model"),    # ✅ Fixed: was model_name
                 location=real_location,
-                telematics="Live" if latest_log else "Offline",
+                telematics="Live" if latest_snapshot else "Offline",
                 predictedFailure=failure,
-                probability=prob if isinstance(prob, int) else 0,
+                probability=_safe_probability(prob),
                 action=action,
                 scheduled_date=str(s_date) if s_date else None,
                 voice_transcript=transcript,
-                engine_temp=int(temp) if temp else 0,
-                oil_pressure=float(oil) if oil else 0.0,
-                battery_voltage=float(batt) if batt else 0.0,
+                engine_temp=temp,
+                oil_pressure=oil,
+                battery_voltage=batt,
                 owners=owner_data
             ))
         

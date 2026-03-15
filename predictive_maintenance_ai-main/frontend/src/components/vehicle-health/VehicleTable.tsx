@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -28,6 +28,7 @@ import { Search, Filter, Download, ArrowUpDown, ChevronLeft, ChevronRight, Therm
 
 // API & Data
 import { api, VehicleSummary } from '../../services/api';
+import { stream } from '../../services/stream';
 
 // =========================================================
 // 🖼️ SMART IMAGE SELECTOR
@@ -52,6 +53,49 @@ const getVehicleImage = (model: string) => {
   
 };
 
+const STREAM_CONNECTED_POLL_MS = 15000;
+const STREAM_FALLBACK_POLL_MS = 2500;
+const STREAM_STALE_AFTER_MS = 7000;
+
+const normalizeVehicleId = (value: unknown): string => {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim().toUpperCase();
+};
+
+const toFiniteNumber = (value: unknown, fallback: number): number => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeMetric = (value: unknown, fallback: number, digits = 1): number => {
+  const parsed = toFiniteNumber(value, fallback);
+  const factor = 10 ** digits;
+  return Math.round(parsed * factor) / factor;
+};
+
+const formatMetric = (value: number, digits = 1): string => {
+  if (!Number.isFinite(value)) {
+    return '--';
+  }
+
+  const normalized = normalizeMetric(value, value, digits);
+  return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(digits);
+};
+
+const normalizeVehicleSummary = (vehicle: VehicleSummary): VehicleSummary => {
+  return {
+    ...vehicle,
+    vin: normalizeVehicleId(vehicle.vin),
+    engine_temp: normalizeMetric(vehicle.engine_temp, 0),
+    oil_pressure: normalizeMetric(vehicle.oil_pressure, 0),
+    battery_voltage: normalizeMetric(vehicle.battery_voltage, 24.0),
+    probability: vehicle.probability > 0 ? vehicle.probability : 15,
+    predictedFailure: vehicle.probability > 0 ? vehicle.predictedFailure : "System Healthy",
+  };
+};
+
 interface VehicleTableProps {
   onSelectVehicle: (vin: string) => void;
   selectedVehicle: string | null;
@@ -60,44 +104,182 @@ interface VehicleTableProps {
 export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableProps) {
   const [data, setData] = useState<VehicleSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [hasFreshStream, setHasFreshStream] = useState(false);
+  const staleStreamTimerRef = useRef<number | null>(null);
   
   // Table State
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
 
-  // 1. FETCH DATA
-  useEffect(() => {
-    const loadFleet = async () => {
-      try {
-        const result = await api.getFleetStatus();
-        
-        // Process data to ensure defaults for new columns
-        const processedData = result.map(vehicle => {
-            return {
-                ...vehicle,
-                // Defaults for Telemetry (if backend sends 0 or null)
-                engine_temp: vehicle.engine_temp || 0,
-                oil_pressure: vehicle.oil_pressure || 0,
-                battery_voltage: vehicle.battery_voltage || 24.0,
-
-                // Fallback for demo visuals if probability is missing
-                probability: vehicle.probability > 0 ? vehicle.probability : 15,
-                predictedFailure: vehicle.probability > 0 ? vehicle.predictedFailure : "System Healthy"
-            };
-        });
-
-        setData(processedData);
-      } catch (err) {
-        console.error("Failed to load fleet", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadFleet();
-    const interval = setInterval(loadFleet, 2000); // Poll every 2 seconds
-    return () => clearInterval(interval);
+  const clearStaleStreamTimer = useCallback(() => {
+    if (staleStreamTimerRef.current !== null) {
+      window.clearTimeout(staleStreamTimerRef.current);
+      staleStreamTimerRef.current = null;
+    }
   }, []);
+
+  const markStreamHeartbeat = useCallback(() => {
+    setHasFreshStream(true);
+    clearStaleStreamTimer();
+    staleStreamTimerRef.current = window.setTimeout(() => {
+      setHasFreshStream(false);
+      staleStreamTimerRef.current = null;
+    }, STREAM_STALE_AFTER_MS);
+  }, [clearStaleStreamTimer]);
+
+  const loadFleet = useCallback(async () => {
+    try {
+      const result = await api.getFleetStatus();
+      setData(result.map(normalizeVehicleSummary));
+    } catch (err) {
+      console.error("Failed to load fleet", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadFleet();
+  }, [loadFleet]);
+
+  useEffect(() => {
+    stream.start();
+
+    const unsubscribeConnection = stream.subscribeConnection((connected) => {
+      if (!connected) {
+        clearStaleStreamTimer();
+        setHasFreshStream(false);
+      }
+    });
+
+    const unsubscribeEvents = stream.subscribe((event) => {
+      const payload = event.payload ?? {};
+      const vehicleId = normalizeVehicleId(payload.vehicle_id);
+      if (!vehicleId) {
+        return;
+      }
+
+      if (event.topic === "telemetry.latest") {
+        markStreamHeartbeat();
+        setData((previous) =>
+          previous.map((vehicle) => {
+            if (normalizeVehicleId(vehicle.vin) !== vehicleId) {
+              return vehicle;
+            }
+
+            const riskLevel = String(payload.risk_level ?? "").toUpperCase();
+            const anomalyDetected = Boolean(payload.anomaly_detected);
+            const anomalyLevel = String(payload.anomaly_level ?? "").toUpperCase();
+            const nextRisk = Math.round(
+              Math.max(0, Math.min(100, toFiniteNumber(payload.risk_score, vehicle.probability)))
+            );
+
+            let nextAction = vehicle.action;
+            if (!vehicle.action.includes("Booked")) {
+              if (riskLevel === "CRITICAL") {
+                nextAction = "Critical Alert";
+              } else if (riskLevel === "HIGH" || anomalyDetected) {
+                nextAction = "Watch Alert";
+              } else {
+                nextAction = "Monitoring";
+              }
+            }
+
+            const nextFailure =
+              anomalyDetected && anomalyLevel
+                ? `Anomaly ${anomalyLevel}`
+                : vehicle.predictedFailure || "System Healthy";
+
+            return {
+              ...vehicle,
+              telematics: "Live",
+              engine_temp: normalizeMetric(payload.engine_temp_c, vehicle.engine_temp || 0),
+              oil_pressure: normalizeMetric(payload.oil_pressure_psi, vehicle.oil_pressure || 0),
+              battery_voltage: normalizeMetric(payload.battery_voltage, vehicle.battery_voltage || 24),
+              probability: nextRisk,
+              action: nextAction,
+              predictedFailure: nextFailure,
+            };
+          })
+        );
+        return;
+      }
+
+      if (event.topic === "anomaly.event") {
+        const reasons = Array.isArray(payload.reasons) ? payload.reasons : [];
+        const firstReason = reasons.length > 0 ? String(reasons[0]) : "";
+
+        setData((previous) =>
+          previous.map((vehicle) => {
+            if (normalizeVehicleId(vehicle.vin) !== vehicleId) {
+              return vehicle;
+            }
+
+            const riskLevel = String(payload.risk_level ?? "HIGH").toUpperCase();
+            const nextRisk = Math.round(
+              Math.max(0, Math.min(100, toFiniteNumber(payload.risk_score, vehicle.probability)))
+            );
+
+            return {
+              ...vehicle,
+              probability: nextRisk,
+              predictedFailure: firstReason || `Anomaly ${String(payload.anomaly_level ?? "WATCH")}`,
+              action: riskLevel === "CRITICAL" ? "Critical Alert" : "Watch Alert",
+            };
+          })
+        );
+        return;
+      }
+
+      if (event.topic === "analysis.completed") {
+        const bookingId = typeof payload.booking_id === "string" ? payload.booking_id : "";
+
+        setData((previous) =>
+          previous.map((vehicle) => {
+            if (normalizeVehicleId(vehicle.vin) !== vehicleId) {
+              return vehicle;
+            }
+
+            const riskLevel = String(payload.risk_level ?? "LOW").toUpperCase();
+            const nextRisk = Math.round(
+              Math.max(0, Math.min(100, toFiniteNumber(payload.risk_score, vehicle.probability)))
+            );
+
+            return {
+              ...vehicle,
+              probability: nextRisk,
+              action:
+                bookingId || vehicle.action.includes("Booked")
+                  ? "Service Booked"
+                  : riskLevel === "CRITICAL"
+                    ? "Critical Alert"
+                    : riskLevel === "HIGH"
+                      ? "Watch Alert"
+                      : "Monitoring",
+            };
+          })
+        );
+      }
+    });
+
+    return () => {
+      clearStaleStreamTimer();
+      unsubscribeConnection();
+      unsubscribeEvents();
+    };
+  }, [clearStaleStreamTimer, markStreamHeartbeat]);
+
+  useEffect(() => {
+    const intervalMs = hasFreshStream ? STREAM_CONNECTED_POLL_MS : STREAM_FALLBACK_POLL_MS;
+    const intervalId = window.setInterval(() => {
+      void loadFleet();
+    }, intervalMs);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [hasFreshStream, loadFleet]);
 
   // 2. DEFINE COLUMNS
   const columns = useMemo<ColumnDef<VehicleSummary>[]>(() => [
@@ -134,11 +316,11 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
       accessorKey: "engine_temp",
       header: "Temp",
       cell: ({ row }) => {
-        const temp = row.original.engine_temp || 0;
+        const temp = normalizeMetric(row.original.engine_temp, 0);
         const isHot = temp > 105;
         return (
           <div className={`flex items-center gap-1 font-mono font-medium ${isHot ? "text-red-600 animate-pulse font-bold" : "text-slate-600"}`}>
-             <Thermometer size={14} /> {temp}°C
+             <Thermometer size={14} /> {formatMetric(temp)}°C
           </div>
         );
       },
@@ -149,11 +331,11 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
       accessorKey: "oil_pressure",
       header: "Oil (PSI)",
       cell: ({ row }) => {
-        const oil = row.original.oil_pressure || 0;
+        const oil = normalizeMetric(row.original.oil_pressure, 0);
         const isLow = oil < 20;
         return (
           <div className={`flex items-center gap-1 font-mono font-medium ${isLow ? "text-amber-600 font-bold" : "text-slate-600"}`}>
-             <Droplet size={14} /> {oil}
+             <Droplet size={14} /> {formatMetric(oil)}
           </div>
         );
       },
@@ -163,11 +345,14 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     {
       accessorKey: "battery_voltage",
       header: "Batt (V)",
-      cell: ({ row }) => (
+      cell: ({ row }) => {
+        const battery = normalizeMetric(row.original.battery_voltage, 24);
+        return (
           <div className="flex items-center gap-1 font-mono text-slate-600">
-             <Zap size={14} className="text-yellow-500 fill-yellow-500" /> {row.original.battery_voltage}V
+             <Zap size={14} className="text-yellow-500 fill-yellow-500" /> {formatMetric(battery)}V
           </div>
-      ),
+        );
+      },
     },
 
     {
@@ -272,6 +457,12 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
         <div className="flex items-center justify-between">
           <CardTitle>Vehicle Fleet Overview</CardTitle>
           <div className="flex items-center space-x-2">
+            <Badge
+              variant="outline"
+              className={hasFreshStream ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+            >
+              {hasFreshStream ? "Stream Live" : "Polling Fallback"}
+            </Badge>
             
             {/* 🔍 SEARCH BAR */}
             <div className="relative">

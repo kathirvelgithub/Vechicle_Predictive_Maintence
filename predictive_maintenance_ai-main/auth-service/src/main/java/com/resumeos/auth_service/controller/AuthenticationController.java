@@ -4,7 +4,6 @@ import com.resumeos.auth_service.dto.AuthenticationRequest;
 import com.resumeos.auth_service.dto.AuthenticationResponse;
 import com.resumeos.auth_service.dto.RegisterRequest;
 import com.resumeos.auth_service.service.AuthenticationService;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -13,10 +12,14 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/auth")
-@RequiredArgsConstructor
 public class AuthenticationController {
 
     private final AuthenticationService service;
+
+    // Explicit constructor so final field is initialized (avoids relying on Lombok)
+    public AuthenticationController(AuthenticationService service) {
+        this.service = service;
+    }
 
     @PostMapping("/register")
     public ResponseEntity<AuthenticationResponse> register(
