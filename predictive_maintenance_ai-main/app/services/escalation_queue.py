@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 import traceback
 from dataclasses import dataclass
@@ -20,11 +21,20 @@ class EscalationJob:
     reasons: List[str]
 
 
+def _resolve_timeout_seconds() -> float:
+    try:
+        configured = float(os.getenv("ESCALATION_AGENT_TIMEOUT_SECONDS", "45"))
+    except (TypeError, ValueError):
+        configured = 45.0
+    return max(5.0, configured)
+
+
 class EscalationQueue:
     def __init__(self, cooldown_seconds: int = 60) -> None:
         self._queue: "asyncio.Queue[Optional[EscalationJob]]" = asyncio.Queue()
         self._workers: List[asyncio.Task] = []
         self._cooldown_seconds = cooldown_seconds
+        self._agent_timeout_seconds = _resolve_timeout_seconds()
         self._last_enqueued: Dict[str, float] = {}
         self._pending_vehicles: Set[str] = set()
         self._lock = asyncio.Lock()
@@ -112,6 +122,8 @@ class EscalationQueue:
             print(f"[EscalationWorker:{worker_index}] master_agent unavailable, skipping {job.vehicle_id}")
             return
 
+        from app.api.routes_predictive import PredictiveRequest, persist_analysis_outputs, _ensure_diagnosis_result
+
         initial_state = {
             "run_id": "",
             "trigger_source": "queue_auto_escalation",
@@ -129,7 +141,13 @@ class EscalationQueue:
             "detected_issues": [],
             "risk_score": 0,
             "risk_level": "LOW",
+            "rule_risk_score": None,
+            "rule_risk_level": None,
+            "ml_risk_score": None,
+            "risk_model_used": None,
             "diagnosis_report": "",
+            "diagnosis_source": None,
+            "fallback_reason": None,
             "recommended_action": "Wait",
             "priority_level": "Low",
             "voice_transcript": [],
@@ -146,9 +164,37 @@ class EscalationQueue:
             "feedback_request": None,
         }
 
-        result = await asyncio.to_thread(master_agent.invoke, initial_state)
-
-        from app.api.routes_predictive import PredictiveRequest, persist_analysis_outputs
+        try:
+            result = await asyncio.wait_for(
+                asyncio.to_thread(master_agent.invoke, initial_state),
+                timeout=self._agent_timeout_seconds,
+            )
+            result = _ensure_diagnosis_result(
+                result=result,
+                vehicle_id=job.vehicle_id,
+                telematics_payload=job.telematics,
+            )
+        except asyncio.TimeoutError:
+            timeout_reason = f"queue_agent_timeout:{int(self._agent_timeout_seconds)}s"
+            print(
+                f"[EscalationWorker:{worker_index}] {job.vehicle_id} exceeded timeout "
+                f"({self._agent_timeout_seconds:.1f}s), using fallback"
+            )
+            result = _ensure_diagnosis_result(
+                result=initial_state,
+                vehicle_id=job.vehicle_id,
+                telematics_payload=job.telematics,
+                fallback_reason=timeout_reason,
+            )
+        except Exception as exc:
+            failure_reason = f"queue_agent_failed:{exc.__class__.__name__}"
+            print(f"[EscalationWorker:{worker_index}] {job.vehicle_id} failed: {exc}")
+            result = _ensure_diagnosis_result(
+                result=initial_state,
+                vehicle_id=job.vehicle_id,
+                telematics_payload=job.telematics,
+                fallback_reason=failure_reason,
+            )
 
         req = PredictiveRequest(
             vehicle_id=job.vehicle_id,
@@ -159,7 +205,10 @@ class EscalationQueue:
             metadata={"source": "queue-auto-escalation", "skip_telematics_persist": True},
         )
 
-        await asyncio.to_thread(persist_analysis_outputs, req, result)
+        try:
+            await asyncio.to_thread(persist_analysis_outputs, req, result)
+        except Exception as exc:
+            print(f"[EscalationWorker:{worker_index}] persist failed for {job.vehicle_id}: {exc}")
 
         await stream_manager.broadcast(
             "analysis.completed",
@@ -167,6 +216,10 @@ class EscalationQueue:
                 "vehicle_id": job.vehicle_id,
                 "risk_score": result.get("risk_score", 0),
                 "risk_level": str(result.get("risk_level", "LOW")).upper(),
+                "diagnosis": result.get("diagnosis_report"),
+                "diagnosis_source": result.get("diagnosis_source"),
+                "fallback_reason": result.get("fallback_reason"),
+                "recommended_action": result.get("recommended_action"),
                 "booking_id": result.get("booking_id"),
                 "source": "queue-auto-escalation",
             },

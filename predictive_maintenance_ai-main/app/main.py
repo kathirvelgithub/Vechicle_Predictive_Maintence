@@ -1,8 +1,13 @@
 import os
+from datetime import datetime, timezone
+from typing import Any, Dict
+
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from database import check_database_connection, execute_query
+from app.domain.ml_risk_model import get_model_status
 
 # ✅ FIX 1: Correct Imports matching your file structure (app/api/routes_*.py)
 # You do not have a 'routers' folder, so we import directly from app.api
@@ -35,8 +40,119 @@ app.include_router(routes_scheduling.router, prefix="/api/scheduling", tags=["Sc
 app.include_router(routes_stream.router, prefix="/api/stream", tags=["Streaming"])
 
 
+REQUIRED_TABLES = (
+    "vehicles",
+    "telematics_logs",
+    "vehicle_live_state",
+    "anomaly_events",
+    "telemetry_minute_aggregates",
+    "ai_analysis_results",
+    "service_bookings",
+    "notifications",
+)
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw_value = str(os.getenv(name, str(default))).strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
+
+
+def _check_required_tables() -> Dict[str, Any]:
+    values_sql = ", ".join([f"('{table_name}')" for table_name in REQUIRED_TABLES])
+    query = (
+        "SELECT required.table_name, "
+        "(to_regclass('public.' || required.table_name) IS NOT NULL) AS present "
+        f"FROM (VALUES {values_sql}) AS required(table_name)"
+    )
+
+    try:
+        rows = execute_query(query, fetch=True)
+        missing = [str(row.get("table_name")) for row in rows if not row.get("present")]
+        return {
+            "missing_tables": missing,
+            "error": None,
+        }
+    except Exception as exc:
+        return {
+            "missing_tables": list(REQUIRED_TABLES),
+            "error": f"schema_check_failed:{exc.__class__.__name__}",
+        }
+
+
+def _collect_startup_readiness() -> Dict[str, Any]:
+    strict_mode = _env_flag("STARTUP_STRICT_READINESS", False)
+    require_ml_model = _env_flag("STARTUP_REQUIRE_ML_MODEL", False)
+
+    checks: Dict[str, Any] = {
+        "database": {
+            "connected": False,
+            "missing_tables": [],
+            "error": None,
+        },
+        "ml_model": {
+            "enabled": _env_flag("ML_RISK_ENABLED", True),
+            "available": False,
+            "path": None,
+            "model_name": None,
+            "reason": None,
+        },
+    }
+
+    blockers = []
+    warnings = []
+
+    db_connected = check_database_connection()
+    checks["database"]["connected"] = db_connected
+    if db_connected:
+        schema_check = _check_required_tables()
+        checks["database"]["missing_tables"] = schema_check["missing_tables"]
+        checks["database"]["error"] = schema_check["error"]
+        if schema_check["missing_tables"]:
+            blockers.append("database_missing_required_tables")
+            warnings.append(f"Missing tables: {', '.join(schema_check['missing_tables'])}")
+    else:
+        checks["database"]["error"] = "database_unreachable"
+        blockers.append("database_unreachable")
+        warnings.append("Database not reachable at startup")
+
+    ml_enabled = checks["ml_model"]["enabled"]
+    if ml_enabled:
+        model_status = get_model_status()
+        checks["ml_model"].update(model_status)
+        if not model_status.get("available"):
+            if require_ml_model:
+                blockers.append("ml_model_unavailable")
+            warnings.append(
+                "ML model unavailable; hybrid scoring will use rules only "
+                f"({model_status.get('reason')})"
+            )
+    else:
+        checks["ml_model"]["reason"] = "disabled_by_env"
+        if require_ml_model:
+            blockers.append("ml_model_disabled")
+
+    return {
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "strict_mode": strict_mode,
+        "require_ml_model": require_ml_model,
+        "checks": checks,
+        "blockers": blockers,
+        "warnings": warnings,
+    }
+
+
 @app.on_event("startup")
 async def startup_event():
+    readiness = _collect_startup_readiness()
+    app.state.startup_readiness = readiness
+
+    for warning in readiness.get("warnings", []):
+        print(f"[StartupWarning] {warning}")
+
+    if readiness.get("strict_mode") and readiness.get("blockers"):
+        blockers = ", ".join(readiness["blockers"])
+        raise RuntimeError(f"Startup readiness failed in strict mode: {blockers}")
+
     await escalation_queue.start(worker_count=1)
 
 
@@ -46,7 +162,28 @@ async def shutdown_event():
 
 @app.get("/")
 def health_check():
-    return {"status": "AI System Online", "version": "1.0.0"}
+    readiness = getattr(app.state, "startup_readiness", None)
+    is_ready = readiness is not None and not readiness.get("blockers")
+    return {
+        "status": "AI System Online",
+        "version": "1.0.0",
+        "ready": bool(is_ready),
+    }
+
+
+@app.get("/health/ready")
+def readiness_check():
+    readiness = getattr(app.state, "startup_readiness", None)
+    if not readiness:
+        return {
+            "ready": False,
+            "reason": "startup_checks_not_run",
+        }
+
+    return {
+        "ready": len(readiness.get("blockers", [])) == 0,
+        **readiness,
+    }
 
 if __name__ == "__main__":
     # ✅ FIX 2: Correct App Path for Uvicorn

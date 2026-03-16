@@ -53,8 +53,14 @@ const AUTOPUSH_INTERVAL_MS = readIntFromEnv('SIM_AUTOPUSH_INTERVAL_MS', 6000);
 const AUTOPUSH_REQUEST_TIMEOUT_MS = readIntFromEnv('SIM_AUTOPUSH_REQUEST_TIMEOUT_MS', 6000);
 const AUTOPUSH_WARNING_COOLDOWN_MS = readIntFromEnv('SIM_AUTOPUSH_WARNING_COOLDOWN_MS', 12000);
 const AUTOPUSH_WARMUP_TIMEOUT_MS = readIntFromEnv('SIM_AUTOPUSH_WARMUP_TIMEOUT_MS', 12000);
+const FASTAPI_READY_URL = (process.env.SIM_FASTAPI_READY_URL || 'http://127.0.0.1:8000/health/ready').trim();
+const FASTAPI_READY_TIMEOUT_MS = readIntFromEnv('SIM_FASTAPI_READY_TIMEOUT_MS', 3000);
+const FASTAPI_READY_RETRY_MS = readIntFromEnv('SIM_FASTAPI_READY_RETRY_MS', 1000);
+const FASTAPI_READY_MAX_ATTEMPTS = readIntFromEnv('SIM_FASTAPI_READY_MAX_ATTEMPTS', 90);
 
 let lastAutopushWarningAt = 0;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function warnAutopush(...args) {
   const now = Date.now();
@@ -76,6 +82,70 @@ async function warmupTelematicsRoute() {
     const message = error instanceof Error ? error.message : String(error);
     warnAutopush('[sim-autopush] Warm-up request did not complete:', message);
   }
+}
+
+async function probeFastApiReadiness() {
+  try {
+    const response = await fetch(FASTAPI_READY_URL, {
+      method: 'GET',
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(FASTAPI_READY_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      return {
+        ready: false,
+        reason: `HTTP ${response.status}`,
+      };
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) {
+      return {
+        ready: true,
+        reason: 'non-json response treated as ready',
+      };
+    }
+
+    const payload = await response.json().catch(() => null);
+    if (!payload || typeof payload !== 'object') {
+      return {
+        ready: false,
+        reason: 'invalid JSON body from readiness endpoint',
+      };
+    }
+
+    return {
+      ready: Boolean(payload.ready),
+      reason: payload.ready ? 'ready=true' : `ready=false (${payload.reason || 'not ready'})`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ready: false,
+      reason: message,
+    };
+  }
+}
+
+async function waitForFastApiReadiness() {
+  for (let attempt = 1; attempt <= FASTAPI_READY_MAX_ATTEMPTS; attempt += 1) {
+    const probe = await probeFastApiReadiness();
+    if (probe.ready) {
+      return true;
+    }
+
+    if (attempt === 1 || attempt % 5 === 0 || attempt === FASTAPI_READY_MAX_ATTEMPTS) {
+      warnAutopush(
+        `[sim-autopush] Waiting for backend readiness at ${FASTAPI_READY_URL} ` +
+          `(attempt ${attempt}/${FASTAPI_READY_MAX_ATTEMPTS}): ${probe.reason}`,
+      );
+    }
+
+    await sleep(FASTAPI_READY_RETRY_MS);
+  }
+
+  return false;
 }
 
 const FLEET_IDS = ['V-301', 'V-302', 'V-303', 'V-304', 'V-401', 'V-402', 'V-403'];
@@ -157,6 +227,41 @@ async function pushTelemetryBatch() {
 
     if (!response.ok) {
       warnAutopush('[sim-autopush] Failed to push batch:', response.status, response.statusText);
+    } else {
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const payload = await response.json().catch(() => null);
+        if (payload && payload.forwarded === false && payload.queued !== true) {
+          warnAutopush(
+            '[sim-autopush] Proxy accepted batch but forward failed:',
+            payload.forwardError || 'unknown error',
+          );
+        }
+        if (payload && Number(payload.droppedFromQueue || 0) > 0) {
+          warnAutopush(
+            '[sim-autopush] Forward queue overflowed and dropped old batches:',
+            Number(payload.droppedFromQueue || 0),
+          );
+        }
+        if (payload && Number(payload.coalescedFromQueue || 0) > 0) {
+          warnAutopush(
+            '[sim-autopush] Forward queue coalesced stale batches:',
+            Number(payload.coalescedFromQueue || 0),
+          );
+        }
+        if (payload && payload.queueHealth && typeof payload.queueHealth === 'object') {
+          const queueState = String(payload.queueHealth.state || 'healthy').toLowerCase();
+          if (queueState !== 'healthy') {
+            const pending = Number(payload.queueHealth.pendingBatches || 0);
+            const pendingRecords = Number(payload.queueHealth.pendingRecords || 0);
+            const oldestAgeMs = Number(payload.queueHealth.oldestItemAgeMs || 0);
+            warnAutopush(
+              `[sim-autopush] Forward queue ${queueState}: pending=${pending} batches, ` +
+                `pendingRecords=${pendingRecords}, oldestAgeMs=${oldestAgeMs}`,
+            );
+          }
+        }
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -175,17 +280,29 @@ function startAutopushLoop() {
     return;
   }
 
-  setTimeout(async () => {
-    await warmupTelematicsRoute();
-    void pushTelemetryBatch();
-    setInterval(() => {
-      void pushTelemetryBatch();
-    }, AUTOPUSH_INTERVAL_MS);
-  }, AUTOPUSH_START_DELAY_MS);
+  void (async () => {
+    const ready = await waitForFastApiReadiness();
+    if (!ready) {
+      console.error(
+        `[sim-autopush] Backend readiness check failed after ${FASTAPI_READY_MAX_ATTEMPTS} attempts. ` +
+          'Autopush will remain disabled.',
+      );
+      return;
+    }
 
-  console.log(
-    `> Simulation autopush enabled (${FLEET_IDS.length} vehicles every ${AUTOPUSH_INTERVAL_MS}ms, start delay ${AUTOPUSH_START_DELAY_MS}ms)`,
-  );
+    console.log(`> FastAPI readiness confirmed at ${FASTAPI_READY_URL}`);
+    console.log(
+      `> Simulation autopush enabled (${FLEET_IDS.length} vehicles every ${AUTOPUSH_INTERVAL_MS}ms, start delay ${AUTOPUSH_START_DELAY_MS}ms)`,
+    );
+
+    setTimeout(async () => {
+      await warmupTelematicsRoute();
+      void pushTelemetryBatch();
+      setInterval(() => {
+        void pushTelemetryBatch();
+      }, AUTOPUSH_INTERVAL_MS);
+    }, AUTOPUSH_START_DELAY_MS);
+  })();
 }
 
 app.prepare().then(() => {

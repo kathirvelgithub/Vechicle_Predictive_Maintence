@@ -1,4 +1,4 @@
-import { STREAM_WS_URL } from "./config";
+import { STREAM_WS_URL, STREAM_WS_URL_CANDIDATES } from "./config";
 
 export type StreamTopic =
   | "stream.connected"
@@ -19,6 +19,7 @@ type ConnectionListener = (connected: boolean) => void;
 
 class RealtimeStreamClient {
   private socket: WebSocket | null = null;
+  private socketUrlIndex = 0;
   private started = false;
   private connected = false;
   private reconnectTimer: number | null = null;
@@ -35,6 +36,7 @@ class RealtimeStreamClient {
     }
     this.started = true;
     this.disposed = false;
+    this.socketUrlIndex = 0;
     this.connect();
   }
 
@@ -78,8 +80,11 @@ class RealtimeStreamClient {
       return;
     }
 
+    const candidates = this.getSocketCandidates();
+    const targetUrl = candidates[this.socketUrlIndex % candidates.length] || STREAM_WS_URL;
+
     try {
-      this.socket = new WebSocket(STREAM_WS_URL);
+      this.socket = new WebSocket(targetUrl);
     } catch {
       this.setConnected(false);
       this.scheduleReconnect();
@@ -171,8 +176,17 @@ class RealtimeStreamClient {
 
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
+      const candidates = this.getSocketCandidates();
+      if (candidates.length > 1) {
+        this.socketUrlIndex = (this.socketUrlIndex + 1) % candidates.length;
+      }
       this.connect();
     }, delayMs);
+  }
+
+  private getSocketCandidates(): string[] {
+    const unique = Array.from(new Set([STREAM_WS_URL, ...STREAM_WS_URL_CANDIDATES].filter(Boolean)));
+    return unique.length > 0 ? unique : [STREAM_WS_URL];
   }
 
   private clearReconnectTimer(): void {

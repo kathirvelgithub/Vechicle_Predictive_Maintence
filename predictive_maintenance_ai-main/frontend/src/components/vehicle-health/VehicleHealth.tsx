@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { VehicleTable } from './VehicleTable';
 import { VehicleDetailPanel } from './VehicleDetailPanel';
+import { VehicleDetailErrorBoundary } from './VehicleDetailErrorBoundary';
 
 export function VehicleHealth() {
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
@@ -21,11 +22,17 @@ export function VehicleHealth() {
 
       {/* Vehicle Detail Slide-out Panel */}
       {selectedVehicle && (
-        <VehicleDetailPanel
-          key={selectedVehicle} // <--- THIS IS THE MAGIC FIX
+        <VehicleDetailErrorBoundary
+          key={`detail-boundary-${selectedVehicle}`}
           vehicleId={selectedVehicle}
           onClose={() => setSelectedVehicle(null)}
-        />
+        >
+          <VehicleDetailPanel
+            key={selectedVehicle} // <--- THIS IS THE MAGIC FIX
+            vehicleId={selectedVehicle}
+            onClose={() => setSelectedVehicle(null)}
+          />
+        </VehicleDetailErrorBoundary>
       )}
     </div>
   );

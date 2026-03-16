@@ -5,6 +5,16 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from database import supabase  # ✅ DB Client
 
+try:
+    from app.api.routes_telematics import get_latest_manual_override
+except Exception:
+    def get_latest_manual_override(vehicle_id: str) -> Dict[str, Any]:
+        return {
+            "manual_override_active": False,
+            "manual_override_keys": [],
+            "manual_override_values": {},
+        }
+
 router = APIRouter()
 
 # --- 1. DATA MODELS ---
@@ -36,6 +46,10 @@ class VehicleSummary(BaseModel):
     engine_temp: Optional[float] = 0.0
     oil_pressure: Optional[float] = 0.0
     battery_voltage: Optional[float] = 0.0
+    manual_override_active: Optional[bool] = False
+    manual_override_keys: Optional[List[str]] = None
+    diagnosis_source: Optional[str] = None
+    fallback_reason: Optional[str] = None
     
     # ✅ UPDATE: Added Owner Field (Nested Object)
     owners: Optional[OwnerInfo] = None 
@@ -79,6 +93,13 @@ def _round_metric(value: Any, default: float = 0.0, digits: int = 1) -> float:
 
 def _safe_probability(value: Any) -> int:
     return int(round(_safe_number(value, 0.0)))
+
+
+def _safe_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text if text else None
 
 # --- 3. ENDPOINTS ---
 
@@ -208,6 +229,7 @@ async def get_fleet_status():
                 phone_number=vehicle.get("owner_phone"),
                 email=vehicle.get("owner_email")
             )
+            manual_override = get_latest_manual_override(v_id)
 
             summary_list.append(VehicleSummary(
                 vin=v_id,
@@ -222,6 +244,10 @@ async def get_fleet_status():
                 engine_temp=temp,
                 oil_pressure=oil,
                 battery_voltage=batt,
+                manual_override_active=manual_override.get("manual_override_active", False),
+                manual_override_keys=manual_override.get("manual_override_keys", []),
+                diagnosis_source=_safe_text(raw_ai.get("diagnosis_source")),
+                fallback_reason=_safe_text(raw_ai.get("fallback_reason")),
                 owners=owner_data
             ))
         

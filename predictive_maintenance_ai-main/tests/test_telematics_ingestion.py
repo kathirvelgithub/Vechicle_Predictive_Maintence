@@ -1,3 +1,6 @@
+import pytest
+
+from app.api import routes_telematics as rt
 from app.api.routes_telematics import build_telematics_log, normalize_dtc_codes
 
 
@@ -41,3 +44,59 @@ def test_build_telematics_log_maps_simulation_payload():
     assert row["cooling_system_health"] == 41
     assert row["risk_score"] == 95
     assert row["anomaly_detected"] is True
+
+
+@pytest.mark.asyncio
+async def test_ingest_telematics_broadcasts_even_when_insert_raises(monkeypatch):
+    class _BrokenInsertTable:
+        def insert(self, _payload):
+            return self
+
+        def execute(self):
+            raise RuntimeError("db_down")
+
+    class _BrokenSupabase:
+        def table(self, _name):
+            return _BrokenInsertTable()
+
+    broadcast_topics = []
+
+    async def _capture_broadcast(topic, _payload):
+        broadcast_topics.append(topic)
+
+    async def _enqueue_stub(**_kwargs):
+        return False
+
+    async def _stats_stub():
+        return {"queued": 0}
+
+    monkeypatch.setattr(rt, "supabase", _BrokenSupabase())
+    monkeypatch.setattr(rt, "evaluate_telematics_anomaly", lambda _vehicle_id, _payload: {
+        "risk_score": 68,
+        "risk_level": "HIGH",
+        "anomaly_level": "WATCH",
+        "anomaly_detected": False,
+        "reasons": ["synthetic-risk"],
+    })
+    monkeypatch.setattr(rt, "_upsert_vehicle_live_state", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(rt, "_persist_anomaly_event", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(rt.stream_manager, "broadcast", _capture_broadcast)
+    monkeypatch.setattr(rt.escalation_queue, "enqueue", _enqueue_stub)
+    monkeypatch.setattr(rt.escalation_queue, "stats", _stats_stub)
+
+    response = await rt.ingest_telematics(
+        {
+            "vehicle_id": "V-301",
+            "timestamp_utc": "2026-03-16T10:00:00Z",
+            "engine_temp_c": 104,
+            "oil_pressure_psi": 21,
+            "rpm": 2900,
+            "battery_voltage": 23.8,
+        }
+    )
+
+    assert response["success"] is True
+    assert response["count"] == 0
+    assert response["failed_records"] == []
+    assert any("insert exception" in warning for warning in response["warnings"])
+    assert "telemetry.latest" in broadcast_topics

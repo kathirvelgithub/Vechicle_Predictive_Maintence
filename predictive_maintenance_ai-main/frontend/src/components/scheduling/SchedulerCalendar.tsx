@@ -46,7 +46,11 @@ const getVehicleImage = (model: string) => {
   return 'https://imgd.aeplcdn.com/370x208/n/cw/ec/130591/fronx-exterior-right-front-three-quarter-109.jpeg';
 };
 
-export function SchedulerCalendar() {
+interface SchedulerCalendarProps {
+  refreshToken?: number;
+}
+
+export function SchedulerCalendar({ refreshToken = 0 }: SchedulerCalendarProps) {
   const [currentDateObj, setCurrentDateObj] = useState(new Date());
   const [bays, setBays] = useState<ServiceBay[]>([]);
   const [loading, setLoading] = useState(true);
@@ -195,7 +199,7 @@ export function SchedulerCalendar() {
     }
   };
 
-  useEffect(() => { loadSchedule(); }, [currentDateObj]); 
+  useEffect(() => { loadSchedule(); }, [currentDateObj, refreshToken]); 
 
   // --- NAVIGATION HANDLERS ---
   const changeDate = (days: number) => {

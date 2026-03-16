@@ -30,6 +30,21 @@ if not DATABASE_URL or DATABASE_URL == "":
     
     DATABASE_URL = f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
+
+def _read_positive_int_env(name: str, fallback: int) -> int:
+    value = os.getenv(name, "")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
+
+
+DB_CONNECT_TIMEOUT_SECONDS = _read_positive_int_env("DB_CONNECT_TIMEOUT_SECONDS", 5)
+DB_STATEMENT_TIMEOUT_MS = _read_positive_int_env("DB_STATEMENT_TIMEOUT_MS", 8000)
+DB_POOL_SIZE = _read_positive_int_env("DB_POOL_SIZE", 10)
+DB_MAX_OVERFLOW = _read_positive_int_env("DB_MAX_OVERFLOW", 20)
+
 # ============================================
 # SQLALCHEMY SETUP (ORM)
 # ============================================
@@ -38,9 +53,14 @@ if not DATABASE_URL or DATABASE_URL == "":
 engine = create_engine(
     DATABASE_URL,
     poolclass=pool.QueuePool,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=DB_POOL_SIZE,
+    max_overflow=DB_MAX_OVERFLOW,
     pool_pre_ping=True,  # Verify connections before using
+    connect_args={
+        # Keep DB calls fail-fast under local startup contention to avoid backlog cascades.
+        "connect_timeout": DB_CONNECT_TIMEOUT_SECONDS,
+        "options": f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+    },
     echo=False  # Set to True for SQL query logging
 )
 
@@ -110,7 +130,11 @@ def get_connection():
         cursor.close()
         conn.close()
     """
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(
+        DATABASE_URL,
+        connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+    )
 
 
 def execute_query(query: str, params: tuple = None, fetch: bool = True):

@@ -1,5 +1,5 @@
 from app.agents.state import AgentState
-from app.domain.risk_rules import calculate_risk_score
+from app.domain.risk_scoring import calculate_hybrid_risk_score
 from database import supabase # ✅ Direct DB Access
 
 def _normalize_incoming_telematics(telematics_data: dict | None) -> dict:
@@ -57,11 +57,15 @@ def data_analysis_node(state: AgentState) -> AgentState:
 
         if _has_live_telematics(incoming_telematics):
             state["telematics_data"] = incoming_telematics
-            risk_assessment = calculate_risk_score(incoming_telematics)
+            risk_assessment = calculate_hybrid_risk_score(incoming_telematics)
 
             state["risk_score"] = risk_assessment["score"]
             state["risk_level"] = risk_assessment["level"]
             state["detected_issues"] = risk_assessment["reasons"]
+            state["rule_risk_score"] = risk_assessment.get("rule_score")
+            state["rule_risk_level"] = risk_assessment.get("rule_level")
+            state["ml_risk_score"] = risk_assessment.get("ml_score")
+            state["risk_model_used"] = risk_assessment.get("risk_model_used")
             return state
 
         # 2. FETCH TELEMATICS (Latest Sensor Data)
@@ -77,16 +81,24 @@ def data_analysis_node(state: AgentState) -> AgentState:
             state["telematics_data"] = t_data
             
             # 3. CALCULATE RISK (Using Live DB Data)
-            risk_assessment = calculate_risk_score(t_data)
+            risk_assessment = calculate_hybrid_risk_score(t_data)
             
             state["risk_score"] = risk_assessment["score"]
             state["risk_level"] = risk_assessment["level"]
             state["detected_issues"] = risk_assessment["reasons"]
+            state["rule_risk_score"] = risk_assessment.get("rule_score")
+            state["rule_risk_level"] = risk_assessment.get("rule_level")
+            state["ml_risk_score"] = risk_assessment.get("ml_score")
+            state["risk_model_used"] = risk_assessment.get("risk_model_used")
         else:
             # Fallback if vehicle exists but has no logs yet
             state["risk_score"] = 0
             state["risk_level"] = "LOW"
             state["detected_issues"] = ["No Data Available"]
+            state["rule_risk_score"] = 0
+            state["rule_risk_level"] = "LOW"
+            state["ml_risk_score"] = None
+            state["risk_model_used"] = "unavailable"
 
         return state
 

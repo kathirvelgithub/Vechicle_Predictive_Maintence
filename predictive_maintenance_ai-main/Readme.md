@@ -181,6 +181,101 @@ fleet_simulator.py ──HTTP POST──────────▶ routes_predi
                              React Dashboard (real-time view)
 ```
 
+### Escalation + Diagnosis Sequence
+
+```mermaid
+sequenceDiagram
+        participant Sim as Fleet Simulator
+        participant API as FastAPI /api/telematics
+        participant RT as routes_telematics
+        participant AD as anomaly_detector
+        participant EQ as escalation_queue
+        participant W as Escalation Worker
+        participant M as master_agent (LangGraph)
+        participant S as supervisor node
+        participant D as diagnosis node
+        participant LG as llm_gateway
+        participant LLM as Groq LLM
+        participant DB as PostgreSQL
+        participant WS as stream_manager
+
+        Sim->>API: POST telemetry batch
+        API->>RT: ingest_telematics(payload)
+        RT->>AD: evaluate_telematics_anomaly(vehicle_id, telematics)
+        AD-->>RT: risk_score + risk_level + anomaly_level
+        RT->>DB: insert telematics_logs
+        RT->>DB: upsert vehicle_live_state
+        RT->>WS: broadcast telemetry.latest
+
+        alt anomaly_level is HIGH or CRITICAL
+                RT->>EQ: enqueue escalation job
+                EQ->>W: dequeue job
+                W->>M: master_agent.invoke(initial_state)
+                M->>S: choose orchestration_route
+                S->>D: run diagnosis when route requires it
+                D->>LG: invoke_with_policy(prompt, profile="diagnosis")
+                LG->>LLM: request with retry/fallback policy
+                LLM-->>LG: diagnosis content
+                LG-->>D: content + model_used
+                Note right of D: diagnosis updates AgentState\n(diagnosis_report, priority_level)
+                D-->>M: updated shared state
+                W->>DB: persist analysis outputs
+                W->>WS: broadcast analysis.completed
+        else anomaly_level is NORMAL or WATCH
+                Note over RT,WS: telemetry is streamed, no escalation worker execution
+        end
+```
+
+This means diagnosis does not call master directly. The master graph orchestrates diagnosis and then consumes the diagnosis fields from shared `AgentState`.
+
+---
+
+## Scheduling Alert And Approval Flow
+
+The scheduling system now supports a recommendation-first workflow with explicit approval before booking.
+
+### End-to-End Flow
+
+1. A recommendation is created for a vehicle with a suggested slot, duration, and priority.
+2. Backend persists the recommendation in `service_recommendations` with status `recommended`.
+3. Backend creates a notification record (`approval_required`) for the target recipient.
+4. Backend emits live stream events:
+         - `scheduling.recommendation.created`
+         - `notification.created`
+5. Frontend shows the item in Scheduling Approval Inbox and Header notifications.
+6. Approver chooses one action:
+         - Approve: backend revalidates slot conflict, creates `service_bookings` row, updates vehicle status, and marks recommendation as `booked`.
+         - Reject: backend marks recommendation as `rejected`.
+7. Backend emits final events:
+         - `scheduling.recommendation.approved` or `scheduling.recommendation.rejected`
+         - `scheduling.booking.created` (on approve)
+
+### Core API Endpoints
+
+- `POST /api/scheduling/recommendations`
+        - Creates recommendation and sends approval notification.
+- `GET /api/scheduling/recommendations/pending`
+        - Lists recommendations waiting for approval.
+- `POST /api/scheduling/recommendations/{recommendation_id}/approve`
+        - Approves recommendation and finalizes booking.
+- `POST /api/scheduling/recommendations/{recommendation_id}/reject`
+        - Rejects recommendation.
+- `GET /api/notifications`
+        - Lists notifications with optional recipient/unread filters.
+
+### UI Surfaces
+
+- Vehicle Health panel: creates recommendation and sends approval alert.
+- Scheduling page: Approval Inbox to approve or reject pending recommendations.
+- Header bell: live notification feed backed by backend notifications table.
+
+### Phase 1 Rules
+
+- Working window: 09:00-17:00
+- Slot step: 30 minutes
+- Variable duration based on priority/service type
+- Conflict handling: revalidate at approval time and return alternative slot when occupied
+
 ---
 
 ## Project Structure

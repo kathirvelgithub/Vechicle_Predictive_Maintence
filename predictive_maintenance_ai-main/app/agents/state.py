@@ -22,9 +22,15 @@ class AgentState(TypedDict):
     risk_score: int
     risk_level: str             # LOW, MEDIUM, HIGH, CRITICAL
     detected_issues: List[str]
+    rule_risk_score: Optional[int]
+    rule_risk_level: Optional[str]
+    ml_risk_score: Optional[int]
+    risk_model_used: Optional[str]
     
     # --- 3. DIAGNOSIS LAYER ---
     diagnosis_report: str
+    diagnosis_source: Optional[str]
+    fallback_reason: Optional[str]
     recommended_action: str
     priority_level: str
     

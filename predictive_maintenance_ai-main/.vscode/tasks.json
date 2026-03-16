@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "test-predictive-fallbacks",
+			"type": "shell",
+			"command": "pytest",
+			"args": [
+				"tests/test_predictive_fallbacks.py",
+				"-q"
+			],
+			"isBackground": false
+		}
+	]
+}

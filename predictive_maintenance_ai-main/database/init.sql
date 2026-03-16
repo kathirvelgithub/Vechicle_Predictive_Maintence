@@ -257,6 +257,38 @@ CREATE TABLE IF NOT EXISTS service_bookings (
 );
 
 -- ============================================
+-- 4B. SERVICE RECOMMENDATIONS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS service_recommendations (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    recommendation_id VARCHAR(50) UNIQUE NOT NULL,
+    vehicle_id VARCHAR(50) NOT NULL,
+
+    -- Recommendation Details
+    recommended_start TIMESTAMP NOT NULL,
+    estimated_duration_hours DECIMAL(4, 2) NOT NULL DEFAULT 1.0,
+    service_type VARCHAR(100),
+    priority VARCHAR(20),
+    risk_score INTEGER DEFAULT 0,
+    reason TEXT,
+
+    -- Lifecycle
+    status VARCHAR(30) DEFAULT 'recommended', -- recommended, conflict, rejected, booked
+    recipient VARCHAR(255),
+    suggested_by VARCHAR(255),
+    approver_email VARCHAR(255),
+    approved_at TIMESTAMP,
+    rejected_at TIMESTAMP,
+    booking_id VARCHAR(50),
+
+    -- Metadata
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT fk_recommendation_vehicle FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE
+);
+
+-- ============================================
 -- 5. NOTIFICATIONS TABLE
 -- ============================================
 CREATE TABLE IF NOT EXISTS notifications (
@@ -343,6 +375,11 @@ CREATE INDEX idx_bookings_vehicle_id ON service_bookings(vehicle_id);
 CREATE INDEX idx_bookings_status ON service_bookings(status);
 CREATE INDEX idx_bookings_scheduled_date ON service_bookings(scheduled_date);
 
+-- Service Recommendations
+CREATE INDEX idx_recommendations_vehicle_id ON service_recommendations(vehicle_id);
+CREATE INDEX idx_recommendations_status ON service_recommendations(status);
+CREATE INDEX idx_recommendations_start ON service_recommendations(recommended_start);
+
 -- Notifications
 CREATE INDEX idx_notifications_vehicle_id ON notifications(vehicle_id);
 CREATE INDEX idx_notifications_unread ON notifications(read) WHERE read = false;
@@ -384,6 +421,9 @@ CREATE TRIGGER update_vehicles_updated_at BEFORE UPDATE ON vehicles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_bookings_updated_at BEFORE UPDATE ON service_bookings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_recommendations_updated_at BEFORE UPDATE ON service_recommendations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_live_state_updated_at BEFORE UPDATE ON vehicle_live_state

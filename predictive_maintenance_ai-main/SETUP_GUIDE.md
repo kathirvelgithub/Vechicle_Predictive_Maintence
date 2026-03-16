@@ -124,6 +124,26 @@ pip install -r requirements.txt
 # This may take 5-10 minutes
 ```
 
+### 2b. Train the Calibrated ML Risk Model (XGBoost)
+```powershell
+# From project root with venv activated
+python scripts\train_risk_model.py
+```
+
+Expected output includes:
+- `Risk model trained successfully`
+- Validation AUC metrics
+- Model artifact path: `app/models/risk_xgb.pkl`
+
+Optional training arguments:
+```powershell
+# If your dataset label mapping differs
+python scripts\train_risk_model.py --healthy-label 1
+
+# Custom dataset or output path
+python scripts\train_risk_model.py --dataset engine_data.csv --output app\models\risk_xgb.pkl
+```
+
 ### 3. Configure Environment Variables
 ```powershell
 # Copy the example file
@@ -146,7 +166,50 @@ GROQ_API_KEY=gsk_your_actual_groq_key_here
 ENVIRONMENT=development
 DEBUG=True
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+
+# Hybrid risk scoring (ML + rule guardrails)
+ML_RISK_ENABLED=true
+ML_RISK_MODEL_PATH=app/models/risk_xgb.pkl
+ML_RISK_BLEND_WEIGHT=0.7
+
+# Startup readiness (recommended strict profile)
+STARTUP_STRICT_READINESS=true
+STARTUP_REQUIRE_ML_MODEL=true
+
+# Queue safeguard
+ESCALATION_AGENT_TIMEOUT_SECONDS=45
+
+# Backend fail-fast safeguards
+DB_CONNECT_TIMEOUT_SECONDS=5
+DB_STATEMENT_TIMEOUT_MS=8000
+TELEMETRICS_RECORD_TIMEOUT_SECONDS=8
 ```
+
+If you are doing quick local iteration without a trained model, temporarily set:
+```env
+STARTUP_STRICT_READINESS=false
+STARTUP_REQUIRE_ML_MODEL=false
+```
+
+### 3b. Recommended Simulator Forwarding Safeguards
+
+Create or update `Simulation/.env.local` with:
+
+```env
+SIM_FASTAPI_READY_URL=http://127.0.0.1:8000/health/ready
+SIM_FASTAPI_READY_TIMEOUT_MS=3000
+SIM_FASTAPI_READY_RETRY_MS=1000
+SIM_FASTAPI_READY_MAX_ATTEMPTS=90
+SIM_AUTOPUSH_INTERVAL_MS=6000
+SIM_AUTOPUSH_REQUEST_TIMEOUT_MS=6000
+FASTAPI_FORWARD_ENABLE_COALESCE=true
+FASTAPI_FORWARD_COALESCE_THRESHOLD=25
+FASTAPI_FORWARD_BACKLOG_WARN_AGE_MS=60000
+FASTAPI_FORWARD_BACKLOG_CRITICAL_AGE_MS=180000
+```
+
+These settings ensure the simulator autopush loop waits for backend readiness before sending telematics batches.
+Queue coalescing keeps the latest state when backlog grows, instead of keeping every stale batch.
 
 ### 4. Test Database Connection
 ```powershell
@@ -183,6 +246,7 @@ INFO:     Application startup complete.
 **Test it:**
 - Open browser: http://localhost:8000
 - You should see: `{"status":"AI System Online","version":"1.0.0"}`
+- Readiness gate: http://localhost:8000/health/ready (must return `"ready": true` in strict profile)
 - API Docs: http://localhost:8000/docs
 
 ---
@@ -329,6 +393,12 @@ SELECT * FROM ai_analysis_results ORDER BY analysis_timestamp DESC LIMIT 5;
 cd c:\kathir\Final_Year_Project\predictive_maintenance_ai-main
 .\venv\Scripts\activate
 python -m app.main
+```
+
+Wait for readiness before starting the simulator:
+```powershell
+Invoke-RestMethod -Uri http://localhost:8000/health/ready -Method GET
+# Continue only when response contains: "ready": true
 ```
 
 **Terminal 3: Vehicle Simulator**
@@ -517,6 +587,30 @@ npm install
 - Check all node files exist in `app/agents/nodes/`
 - Verify Groq API key is set in `.env`
 - Check backend logs for detailed error messages
+
+### Simulator Forward Timeout + Pending Queue Growth
+```
+[telematics] Unable to reach http://127.0.0.1:8000/api/telematics ... Pending queue size: 81. Retrying in 20000ms.
+```
+**Solution:**
+1. Confirm backend readiness first: `Invoke-RestMethod http://localhost:8000/health/ready`
+2. Ensure it returns `"ready": true` before simulator startup.
+3. Verify backend `.env` includes `DB_CONNECT_TIMEOUT_SECONDS`, `DB_STATEMENT_TIMEOUT_MS`, and `TELEMETRICS_RECORD_TIMEOUT_SECONDS`.
+4. Increase simulator push interval temporarily if backend is under load:
+  - `SIM_AUTOPUSH_INTERVAL_MS=8000`
+  - `SIM_AUTOPUSH_REQUEST_TIMEOUT_MS=7000`
+  - `FASTAPI_FORWARD_COALESCE_THRESHOLD=20`
+5. Restart backend, then restart simulator.
+
+Check queue health directly from simulator API:
+```powershell
+Invoke-RestMethod -Uri "http://localhost:3000/api/telematics?queueStatus=true" -Method GET
+```
+
+Healthy signal:
+- `queueHealth.state` is `healthy`
+- `queueHealth.pendingBatches` stays low
+- `queueHealth.oldestItemAgeMs` does not grow continuously
 
 ---
 

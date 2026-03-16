@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { API_BASE_URL } from './config';
+import { API_BASE_URL, API_BASE_URL_CANDIDATES } from './config';
 
 // ==========================================
 // 1. INTERFACES
@@ -12,6 +12,9 @@ export interface TelematicsData {
     rpm: number;
     battery_voltage?: number;
     active_dtc_codes?: string[] | string;
+    manual_override_active?: boolean;
+    manual_override_keys?: string[];
+    manual_override_values?: Record<string, number>;
 }
 
 export interface VoiceLogEntry {
@@ -24,6 +27,8 @@ export interface AnalysisResult {
     risk_score: number;
     risk_level: string;
     diagnosis: string;
+    diagnosis_source?: string;
+    fallback_reason?: string;
     manufacturing_insights?: string;
     ueba_alerts?: { message: string }[];
     
@@ -47,6 +52,10 @@ export interface VehicleSummary {
     engine_temp?: number;
     oil_pressure?: number;
     battery_voltage?: number;
+    manual_override_active?: boolean;
+    manual_override_keys?: string[];
+    diagnosis_source?: string;
+    fallback_reason?: string;
 }
 
 export interface ActivityLog {
@@ -64,6 +73,157 @@ export interface BookingResponse {
     message: string;
 }
 
+export interface SchedulingRecommendation {
+    recommendation_id: string;
+    vehicle_id: string;
+    recommended_start: string;
+    estimated_duration_hours: number;
+    service_type?: string;
+    priority?: string;
+    risk_score?: number;
+    reason?: string;
+    status: string;
+    recipient?: string;
+    suggested_by?: string;
+    approver_email?: string;
+    approved_at?: string;
+    rejected_at?: string;
+    booking_id?: string;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface SchedulingRecommendationCreatePayload {
+    vehicleId: string;
+    serviceDate?: string;
+    requestedStart?: string;
+    notes?: string;
+    serviceType?: string;
+    priority?: string;
+    riskScore?: number;
+    suggestedBy?: string;
+    recipient?: string;
+    estimatedDurationHours?: number;
+}
+
+export interface SchedulingRecommendationResult {
+    status: string;
+    recommendation: SchedulingRecommendation;
+    alert_sent?: boolean;
+    notification?: NotificationItem;
+    message?: string;
+    booking_id?: string;
+    conflict_booking?: Record<string, unknown>;
+    alternative_start?: string;
+}
+
+export interface NotificationItem {
+    id?: string;
+    vehicle_id: string;
+    notification_type?: string;
+    title?: string;
+    message?: string;
+    sent_at?: string;
+    channel?: string;
+    recipient?: string;
+    read?: boolean;
+    acknowledged?: boolean;
+}
+
+const extractApiError = (error: unknown, fallbackMessage: string): Error => {
+    if (axios.isAxiosError(error)) {
+        const detail =
+            (typeof error.response?.data?.detail === 'string' && error.response?.data?.detail) ||
+            (typeof error.response?.data?.message === 'string' && error.response?.data?.message) ||
+            error.message;
+        return new Error(detail || fallbackMessage);
+    }
+    if (error instanceof Error) {
+        return error;
+    }
+    return new Error(fallbackMessage);
+};
+
+const normalizeOptionalString = (value: unknown): string | undefined => {
+    if (typeof value !== 'string') {
+        return undefined;
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : undefined;
+};
+
+const normalizeRequiredString = (value: unknown, fallback: string): string => {
+    if (typeof value !== 'string') {
+        return fallback;
+    }
+    const trimmed = value.trim();
+    return trimmed ? trimmed : fallback;
+};
+
+const normalizeDiagnosisSource = (value: unknown, fallbackReason?: string): string | undefined => {
+    const normalizedFallback = normalizeOptionalString(fallbackReason);
+    const rawSource = normalizeOptionalString(value);
+    if (!rawSource) {
+        return normalizedFallback ? 'rules_fallback' : undefined;
+    }
+
+    const normalized = rawSource.toLowerCase().replace(/[\s-]+/g, '_');
+    if (normalized === 'fallback_rules' || normalized === 'rule_fallback') {
+        return 'rules_fallback';
+    }
+    if (normalized.includes('local')) {
+        return 'local_fallback';
+    }
+    if (normalized === 'llm' || normalized === 'rules_fallback') {
+        return normalized;
+    }
+    return normalized;
+};
+
+const normalizeAnalysisResult = (result: AnalysisResult): AnalysisResult => {
+    const fallbackReason = normalizeOptionalString(result.fallback_reason);
+    return {
+        ...result,
+        diagnosis_source: normalizeDiagnosisSource(result.diagnosis_source, fallbackReason),
+        fallback_reason: fallbackReason,
+    };
+};
+
+const normalizeVehicleSummaryResult = (vehicle: VehicleSummary): VehicleSummary => {
+    const fallbackReason = normalizeOptionalString(vehicle.fallback_reason);
+    const normalizedProbability = Number(vehicle.probability);
+    return {
+        ...vehicle,
+        vin: normalizeRequiredString(vehicle.vin, 'UNKNOWN'),
+        model: normalizeRequiredString(vehicle.model, 'Unknown Model'),
+        location: normalizeRequiredString(vehicle.location, 'Unknown'),
+        telematics: normalizeRequiredString(vehicle.telematics, 'Unavailable'),
+        predictedFailure: normalizeRequiredString(vehicle.predictedFailure, 'System Healthy'),
+        probability: Number.isFinite(normalizedProbability) ? normalizedProbability : 0,
+        action: normalizeRequiredString(vehicle.action, 'Monitoring'),
+        diagnosis_source: normalizeDiagnosisSource(vehicle.diagnosis_source, fallbackReason),
+        fallback_reason: fallbackReason,
+    };
+};
+
+const requestWithApiBaseFallback = async <T>(
+    executor: (apiBaseUrl: string) => Promise<T>,
+    fallbackMessage: string,
+): Promise<T> => {
+    let lastError: unknown = null;
+    const candidates = API_BASE_URL_CANDIDATES.length > 0 ? API_BASE_URL_CANDIDATES : [API_BASE_URL];
+
+    for (const candidate of candidates) {
+        try {
+            return await executor(candidate);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw extractApiError(lastError, fallbackMessage);
+};
+
 // ==========================================
 // 2. API SERVICE
 // ==========================================
@@ -71,20 +231,59 @@ export interface BookingResponse {
 export const api = {
     getTelematics: async (vehicleId: string): Promise<TelematicsData | null> => {
         try {
-            const response = await axios.get(`${API_BASE_URL}/telematics/${vehicleId}`);
-            return response.data;
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/telematics/${vehicleId}`);
+                    return response.data as TelematicsData | null;
+                },
+                `Failed to fetch telematics for ${vehicleId}`,
+            );
         } catch (error) {
             console.error(`Failed to fetch telematics for ${vehicleId}`, error);
             return null;
         }
     },
 
-    runPrediction: async (vehicleId: string): Promise<AnalysisResult | null> => {
+    runPrediction: async (vehicleId: string, telematics?: Partial<TelematicsData>): Promise<AnalysisResult | null> => {
         try {
-            const response = await axios.post(`${API_BASE_URL}/predictive/run`, {
-                vehicle_id: vehicleId
-            });
-            return response.data;
+            const payload: Record<string, unknown> = {
+                vehicle_id: vehicleId,
+                metadata: {
+                    source: 'frontend_manual_diagnosis'
+                }
+            };
+
+            if (telematics) {
+                if (telematics.engine_temp_c !== undefined) {
+                    payload.engine_temp_c = Math.round(Number(telematics.engine_temp_c));
+                }
+                if (telematics.oil_pressure_psi !== undefined) {
+                    payload.oil_pressure_psi = Math.round(Number(telematics.oil_pressure_psi) * 10) / 10;
+                }
+                if (telematics.rpm !== undefined) {
+                    payload.rpm = Math.round(Number(telematics.rpm));
+                }
+                if (telematics.battery_voltage !== undefined) {
+                    payload.battery_voltage = Math.round(Number(telematics.battery_voltage) * 10) / 10;
+                }
+
+                if (Array.isArray(telematics.active_dtc_codes) && telematics.active_dtc_codes.length > 0) {
+                    payload.dtc_readable = String(telematics.active_dtc_codes[0]);
+                } else if (typeof telematics.active_dtc_codes === 'string' && telematics.active_dtc_codes.trim()) {
+                    payload.dtc_readable = telematics.active_dtc_codes.trim();
+                }
+            }
+
+            const responseData = await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.post(`${apiBaseUrl}/predictive/run`, payload, {
+                        timeout: 65000,
+                    });
+                    return response.data as AnalysisResult;
+                },
+                `AI prediction failed for ${vehicleId}`,
+            );
+            return normalizeAnalysisResult(responseData);
         } catch (error) {
             console.error("AI Prediction failed:", error);
             return null;
@@ -93,8 +292,14 @@ export const api = {
 
     getFleetStatus: async (): Promise<VehicleSummary[]> => {
         try {
-            const response = await axios.get(`${API_BASE_URL}/fleet/status`);
-            return response.data;
+            const fleet = await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/fleet/status`);
+                    return response.data as VehicleSummary[];
+                },
+                'Failed to load fleet status',
+            );
+            return fleet.map(normalizeVehicleSummaryResult);
         } catch (error) {
             console.error("Failed to load fleet status", error);
             return [];
@@ -111,6 +316,8 @@ export const api = {
                     risk_score: vehicle.probability,
                     risk_level: vehicle.probability > 80 ? 'CRITICAL' : 'MEDIUM',
                     diagnosis: vehicle.predictedFailure,
+                    diagnosis_source: vehicle.diagnosis_source,
+                    fallback_reason: vehicle.fallback_reason,
                     voice_transcript: vehicle.voice_transcript || []
                 };
             }
@@ -126,6 +333,109 @@ export const api = {
             return response.data;
         } catch (error) {
             return [];
+        }
+    },
+
+    createSchedulingRecommendation: async (
+        payload: SchedulingRecommendationCreatePayload,
+    ): Promise<SchedulingRecommendationResult> => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/scheduling/recommendations`, {
+                vehicle_id: payload.vehicleId,
+                service_date: payload.serviceDate,
+                requested_start: payload.requestedStart,
+                notes: payload.notes || '',
+                service_type: payload.serviceType,
+                priority: payload.priority || 'medium',
+                risk_score: payload.riskScore || 0,
+                suggested_by: payload.suggestedBy,
+                recipient: payload.recipient,
+                estimated_duration_hours: payload.estimatedDurationHours,
+            });
+            return response.data as SchedulingRecommendationResult;
+        } catch (error) {
+            throw extractApiError(error, 'Failed to create scheduling recommendation');
+        }
+    },
+
+    getPendingRecommendations: async (recipient?: string): Promise<SchedulingRecommendation[]> => {
+        try {
+            const response = await axios.get(`${API_BASE_URL}/scheduling/recommendations/pending`, {
+                params: {
+                    recipient: recipient || undefined,
+                    limit: 100,
+                },
+            });
+            return response.data?.recommendations || [];
+        } catch (error) {
+            throw extractApiError(error, 'Failed to load pending recommendations');
+        }
+    },
+
+    approveRecommendation: async (
+        recommendationId: string,
+        approverEmail?: string,
+        notes?: string,
+    ): Promise<SchedulingRecommendationResult> => {
+        try {
+            const response = await axios.post(
+                `${API_BASE_URL}/scheduling/recommendations/${recommendationId}/approve`,
+                {
+                    approver_email: approverEmail,
+                    notes: notes || '',
+                },
+            );
+            return response.data as SchedulingRecommendationResult;
+        } catch (error) {
+            throw extractApiError(error, 'Failed to approve recommendation');
+        }
+    },
+
+    rejectRecommendation: async (
+        recommendationId: string,
+        approverEmail?: string,
+        notes?: string,
+    ): Promise<SchedulingRecommendationResult> => {
+        try {
+            const response = await axios.post(
+                `${API_BASE_URL}/scheduling/recommendations/${recommendationId}/reject`,
+                {
+                    approver_email: approverEmail,
+                    notes: notes || '',
+                },
+            );
+            return response.data as SchedulingRecommendationResult;
+        } catch (error) {
+            throw extractApiError(error, 'Failed to reject recommendation');
+        }
+    },
+
+    getNotifications: async (params?: {
+        vehicleId?: string;
+        recipient?: string;
+        unreadOnly?: boolean;
+        limit?: number;
+    }): Promise<NotificationItem[]> => {
+        try {
+            const response = await axios.get(`${API_BASE_URL}/notifications`, {
+                params: {
+                    vehicle_id: params?.vehicleId,
+                    recipient: params?.recipient,
+                    unread_only: params?.unreadOnly,
+                    limit: params?.limit || 50,
+                },
+            });
+            return response.data as NotificationItem[];
+        } catch (error) {
+            throw extractApiError(error, 'Failed to fetch notifications');
+        }
+    },
+
+    markNotificationRead: async (notificationId: string): Promise<void> => {
+        try {
+            await axios.patch(`${API_BASE_URL}/notifications/${notificationId}/read`);
+        } catch (error) {
+            throw extractApiError(error, 'Failed to mark notification as read');
         }
     },
 

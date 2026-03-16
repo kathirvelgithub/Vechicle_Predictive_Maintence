@@ -2,7 +2,7 @@ from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any, Deque, Dict, List, Optional, TypedDict
 
-from app.domain.risk_rules import calculate_risk_score
+from app.domain.risk_scoring import calculate_hybrid_risk_score
 
 
 class AnomalyAssessment(TypedDict):
@@ -42,7 +42,7 @@ def _map_risk_to_anomaly(risk_level: str) -> str:
 
 
 def evaluate_telematics_anomaly(vehicle_id: str, telematics: Dict[str, Any]) -> AnomalyAssessment:
-    base_assessment = calculate_risk_score(telematics)
+    base_assessment = calculate_hybrid_risk_score(telematics)
     risk_score = int(base_assessment.get("score", 0))
     risk_level = str(base_assessment.get("level", "LOW")).upper()
 

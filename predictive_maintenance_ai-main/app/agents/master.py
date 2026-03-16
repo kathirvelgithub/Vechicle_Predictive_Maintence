@@ -73,7 +73,8 @@ def _track_node(node_name, node_fn):
 
             next_state.setdefault("node_statuses", {})
             next_state.setdefault("node_latency_ms", {})
-            next_state["node_statuses"][node_name] = "ok"
+            if not str(next_state["node_statuses"].get(node_name) or "").strip():
+                next_state["node_statuses"][node_name] = "ok"
             next_state["node_latency_ms"][node_name] = latency_ms
 
             if node_name == "manufacturing":
@@ -179,7 +180,13 @@ def run_predictive_flow(vehicle_id: str) -> dict:
         "detected_issues": [],
         "risk_score": 0,
         "risk_level": "LOW",
+        "rule_risk_score": None,
+        "rule_risk_level": None,
+        "ml_risk_score": None,
+        "risk_model_used": None,
         "diagnosis_report": "",
+        "diagnosis_source": None,
+        "fallback_reason": None,
         "recommended_action": "Wait",
         "priority_level": "Low",
         "customer_script": "",

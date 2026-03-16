@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import uuid
 
 from app.agents.state import AgentState
-from app.domain.risk_rules import calculate_risk_score
+from app.domain.risk_scoring import calculate_hybrid_risk_score
 
 
 def _safe_int(value, fallback: int) -> int:
@@ -32,16 +32,26 @@ def supervisor_node(state: AgentState) -> AgentState:
     state.setdefault("model_used_by_node", {})
     state["model_used_by_node"]["supervisor"] = "rules"
 
+    trigger_source = str(state.get("trigger_source") or "").strip().lower()
+    if trigger_source in {"frontend_manual_diagnosis", "predictive_frontend_manual"}:
+        state["orchestration_route"] = "diagnosis_only"
+        state["route_reason"] = "Frontend manual diagnosis request; return diagnosis quickly"
+        return state
+
     risk_score = _safe_int(state.get("risk_score"), 0)
     telematics = state.get("telematics_data") or {}
     detected_issues = state.get("detected_issues") or []
 
     # Ensure we can route even when upstream inputs are partial.
     if risk_score <= 0 and telematics:
-        assessment = calculate_risk_score(telematics)
+        assessment = calculate_hybrid_risk_score(telematics)
         state["risk_score"] = assessment["score"]
         state["risk_level"] = assessment["level"]
         state["detected_issues"] = assessment["reasons"]
+        state["rule_risk_score"] = assessment.get("rule_score")
+        state["rule_risk_level"] = assessment.get("rule_level")
+        state["ml_risk_score"] = assessment.get("ml_score")
+        state["risk_model_used"] = assessment.get("risk_model_used")
 
     risk_level = str(state.get("risk_level", "LOW")).upper()
 

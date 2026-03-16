@@ -26,6 +26,8 @@ export interface TelemetrySnapshot extends TelemetryReading {
   status: 'healthy' | 'warning' | 'critical';
   alerts: Alert[];
   drivingState: DrivingState;
+  manualOverrideActive: boolean;
+  manualOverrides: Partial<TelemetryReading>;
 }
 
 export interface Alert {
@@ -220,9 +222,14 @@ export class VehicleSimulator {
 
     // Apply manual overrides — override bypasses simulation, pins the value
     const finalState: TelemetryReading = { ...this.state };
+    const manualOverrides: Partial<TelemetryReading> = {};
     for (const [k, v] of Object.entries(this.overrides)) {
-      if (v !== undefined) (finalState as Record<string, number>)[k] = v;
+      if (v !== undefined) {
+        (finalState as Record<string, number>)[k] = v;
+        (manualOverrides as Record<string, number>)[k] = v;
+      }
     }
+    const manualOverrideActive = Object.keys(manualOverrides).length > 0;
 
     // Build snapshot
     const alerts     = this.evaluateAlerts(finalState);
@@ -238,6 +245,8 @@ export class VehicleSimulator {
       status,
       alerts,
       drivingState: this.drivingState,
+      manualOverrideActive,
+      manualOverrides,
     };
   }
 

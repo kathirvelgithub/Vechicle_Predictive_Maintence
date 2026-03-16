@@ -1,10 +1,11 @@
 import asyncio
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Union
 
 from fastapi import APIRouter, HTTPException
 
-from app.domain.risk_rules import calculate_risk_score
+from app.domain.risk_scoring import calculate_hybrid_risk_score
 from app.services.anomaly_detector import evaluate_telematics_anomaly
 from app.services.escalation_queue import escalation_queue
 from app.services.live_stream import stream_manager
@@ -17,6 +18,104 @@ except ImportError:
 
 
 router = APIRouter()
+
+_LATEST_MANUAL_OVERRIDES: Dict[str, Dict[str, Any]] = {}
+
+
+def _read_positive_float_env(name: str, fallback: float) -> float:
+    try:
+        value = float(os.getenv(name, str(fallback)))
+    except (TypeError, ValueError):
+        return fallback
+    return value if value > 0 else fallback
+
+
+TELEMETRICS_RECORD_TIMEOUT_SECONDS = _read_positive_float_env("TELEMETRICS_RECORD_TIMEOUT_SECONDS", 8.0)
+
+
+def _normalize_override_keys(value: Any) -> List[str]:
+    if isinstance(value, list):
+        cleaned = []
+        for item in value:
+            key = str(item).strip()
+            if key:
+                cleaned.append(key)
+        return list(dict.fromkeys(cleaned))
+
+    if isinstance(value, str):
+        cleaned = [part.strip() for part in value.split(",") if part.strip()]
+        return list(dict.fromkeys(cleaned))
+
+    return []
+
+
+def _normalize_override_values(value: Any) -> Dict[str, float]:
+    if not isinstance(value, dict):
+        return {}
+
+    normalized: Dict[str, float] = {}
+    for key, raw_value in value.items():
+        cleaned_key = str(key).strip()
+        if not cleaned_key:
+            continue
+        try:
+            normalized[cleaned_key] = float(raw_value)
+        except (TypeError, ValueError):
+            continue
+    return normalized
+
+
+def extract_manual_override_context(payload: Dict[str, Any]) -> Dict[str, Any]:
+    override_values = _normalize_override_values(
+        _pick(payload, "manual_override_values", "manual_overrides", "manualOverrideValues", "manualOverrides", default={})
+    )
+    override_keys = _normalize_override_keys(_pick(payload, "manual_override_keys", "manualOverrideKeys", default=[]))
+
+    for key in override_values.keys():
+        if key not in override_keys:
+            override_keys.append(key)
+
+    is_active = bool(
+        _pick(payload, "manual_override_active", "manualOverrideActive", default=False) or override_keys
+    )
+
+    return {
+        "manual_override_active": is_active,
+        "manual_override_keys": override_keys if is_active else [],
+        "manual_override_values": override_values if is_active else {},
+    }
+
+
+def _remember_manual_override(vehicle_id: str, override_context: Dict[str, Any]) -> None:
+    if not vehicle_id:
+        return
+
+    if override_context.get("manual_override_active"):
+        _LATEST_MANUAL_OVERRIDES[vehicle_id] = {
+            "manual_override_active": True,
+            "manual_override_keys": list(override_context.get("manual_override_keys") or []),
+            "manual_override_values": dict(override_context.get("manual_override_values") or {}),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+        return
+
+    _LATEST_MANUAL_OVERRIDES.pop(vehicle_id, None)
+
+
+def get_latest_manual_override(vehicle_id: str) -> Dict[str, Any]:
+    cached = _LATEST_MANUAL_OVERRIDES.get(vehicle_id)
+    if not cached:
+        return {
+            "manual_override_active": False,
+            "manual_override_keys": [],
+            "manual_override_values": {},
+        }
+
+    return {
+        "manual_override_active": bool(cached.get("manual_override_active", False)),
+        "manual_override_keys": list(cached.get("manual_override_keys") or []),
+        "manual_override_values": dict(cached.get("manual_override_values") or {}),
+    }
 
 
 def normalize_dtc_codes(value: Any) -> List[str]:
@@ -121,7 +220,7 @@ def build_telematics_log(payload: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     if not raw_record["risk_score"]:
-        assessment = calculate_risk_score(raw_record)
+        assessment = calculate_hybrid_risk_score(raw_record)
         raw_record["risk_score"] = assessment["score"]
 
     return raw_record
@@ -137,7 +236,12 @@ def _safe_risk_level(score: int) -> str:
     return "LOW"
 
 
-def _stream_telematics_payload(record: Dict[str, Any], anomaly: Dict[str, Any]) -> Dict[str, Any]:
+def _stream_telematics_payload(
+    record: Dict[str, Any],
+    anomaly: Dict[str, Any],
+    override_context: Dict[str, Any] = None,
+) -> Dict[str, Any]:
+    override_context = override_context or {}
     return {
         "vehicle_id": record.get("vehicle_id"),
         "timestamp_utc": record.get("timestamp_utc"),
@@ -149,6 +253,9 @@ def _stream_telematics_payload(record: Dict[str, Any], anomaly: Dict[str, Any]) 
         "risk_level": anomaly.get("risk_level", _safe_risk_level(int(record.get("risk_score") or 0))),
         "anomaly_level": anomaly.get("anomaly_level", "NORMAL"),
         "anomaly_detected": bool(anomaly.get("anomaly_detected", False)),
+        "manual_override_active": bool(override_context.get("manual_override_active", False)),
+        "manual_override_keys": list(override_context.get("manual_override_keys") or []),
+        "manual_override_values": dict(override_context.get("manual_override_values") or {}),
     }
 
 
@@ -211,53 +318,133 @@ async def ingest_telematics(payload: Union[Dict[str, Any], List[Dict[str, Any]]]
     inserted_vehicle_ids: List[str] = []
     escalation_enqueued: List[str] = []
     anomaly_records: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    failed_records: List[Dict[str, Any]] = []
 
     try:
         for record in records:
-            db_payload = build_telematics_log(record)
-            vehicle_id = db_payload["vehicle_id"]
+            try:
+                async with asyncio.timeout(TELEMETRICS_RECORD_TIMEOUT_SECONDS):
+                    db_payload = build_telematics_log(record)
+                    vehicle_id = db_payload["vehicle_id"]
+                    override_context = extract_manual_override_context(record)
+                    _remember_manual_override(vehicle_id, override_context)
 
-            anomaly = await asyncio.to_thread(evaluate_telematics_anomaly, vehicle_id, db_payload)
-            db_payload["risk_score"] = anomaly["risk_score"]
-            db_payload["anomaly_detected"] = anomaly["anomaly_detected"]
+                    try:
+                        anomaly = await asyncio.to_thread(evaluate_telematics_anomaly, vehicle_id, db_payload)
+                    except Exception as anomaly_exc:
+                        fallback_risk_score = int(db_payload.get("risk_score") or 0)
+                        anomaly = {
+                            "risk_score": fallback_risk_score,
+                            "risk_level": _safe_risk_level(fallback_risk_score),
+                            "anomaly_level": "WATCH" if fallback_risk_score >= 20 else "NORMAL",
+                            "anomaly_detected": bool(fallback_risk_score >= 20),
+                            "reasons": [f"anomaly_evaluation_failed:{anomaly_exc.__class__.__name__}"],
+                        }
+                        warning = f"anomaly evaluation failed for {vehicle_id}: {anomaly_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
 
-            insert_result = await asyncio.to_thread(supabase.table("telematics_logs").insert(db_payload).execute)
-            if insert_result.get("error"):
-                raise RuntimeError(insert_result["error"])
-            inserted_vehicle_ids.append(vehicle_id)
+                    db_payload["risk_score"] = anomaly["risk_score"]
+                    db_payload["anomaly_detected"] = anomaly["anomaly_detected"]
 
-            await asyncio.to_thread(_upsert_vehicle_live_state, db_payload, anomaly)
-            await asyncio.to_thread(_persist_anomaly_event, db_payload, anomaly)
+                    try:
+                        insert_result = await asyncio.to_thread(supabase.table("telematics_logs").insert(db_payload).execute)
+                        if insert_result.get("error"):
+                            warning = f"telematics_logs insert failed for {vehicle_id}: {insert_result['error']}"
+                            print(f"⚠️ {warning}")
+                            warnings.append(warning)
+                        else:
+                            inserted_vehicle_ids.append(vehicle_id)
+                    except Exception as insert_exc:
+                        warning = f"telematics_logs insert exception for {vehicle_id}: {insert_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
 
-            if anomaly["anomaly_detected"]:
-                anomaly_records.append(
-                    {
-                        "vehicle_id": vehicle_id,
-                        "anomaly_level": anomaly["anomaly_level"],
-                        "risk_level": anomaly["risk_level"],
-                    }
-                )
-                await stream_manager.broadcast(
-                    "anomaly.event",
-                    {
-                        "vehicle_id": vehicle_id,
-                        "anomaly_level": anomaly["anomaly_level"],
-                        "risk_score": anomaly["risk_score"],
-                        "risk_level": anomaly["risk_level"],
-                        "reasons": anomaly["reasons"],
-                    },
-                )
+                    try:
+                        await asyncio.to_thread(_upsert_vehicle_live_state, db_payload, anomaly)
+                    except Exception as upsert_exc:
+                        warning = f"vehicle_live_state upsert exception for {vehicle_id}: {upsert_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
 
-            is_enqueued = await escalation_queue.enqueue(
-                vehicle_id=vehicle_id,
-                telematics=db_payload,
-                anomaly_level=anomaly["anomaly_level"],
-                reasons=anomaly["reasons"],
-            )
-            if is_enqueued:
-                escalation_enqueued.append(vehicle_id)
+                    try:
+                        await asyncio.to_thread(_persist_anomaly_event, db_payload, anomaly)
+                    except Exception as anomaly_persist_exc:
+                        warning = f"anomaly event persist exception for {vehicle_id}: {anomaly_persist_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
 
-            await stream_manager.broadcast("telemetry.latest", _stream_telematics_payload(db_payload, anomaly))
+                    if anomaly["anomaly_detected"]:
+                        anomaly_records.append(
+                            {
+                                "vehicle_id": vehicle_id,
+                                "anomaly_level": anomaly["anomaly_level"],
+                                "risk_level": anomaly["risk_level"],
+                            }
+                        )
+                        try:
+                            await stream_manager.broadcast(
+                                "anomaly.event",
+                                {
+                                    "vehicle_id": vehicle_id,
+                                    "anomaly_level": anomaly["anomaly_level"],
+                                    "risk_score": anomaly["risk_score"],
+                                    "risk_level": anomaly["risk_level"],
+                                    "reasons": anomaly["reasons"],
+                                    "manual_override_active": bool(override_context.get("manual_override_active", False)),
+                                    "manual_override_keys": list(override_context.get("manual_override_keys") or []),
+                                },
+                            )
+                        except Exception as anomaly_broadcast_exc:
+                            warning = f"anomaly.event broadcast failed for {vehicle_id}: {anomaly_broadcast_exc}"
+                            print(f"⚠️ {warning}")
+                            warnings.append(warning)
+
+                    try:
+                        is_enqueued = await escalation_queue.enqueue(
+                            vehicle_id=vehicle_id,
+                            telematics=db_payload,
+                            anomaly_level=anomaly["anomaly_level"],
+                            reasons=anomaly["reasons"],
+                        )
+                        if is_enqueued:
+                            escalation_enqueued.append(vehicle_id)
+                    except Exception as enqueue_exc:
+                        warning = f"escalation enqueue failed for {vehicle_id}: {enqueue_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
+
+                    try:
+                        await stream_manager.broadcast(
+                            "telemetry.latest",
+                            _stream_telematics_payload(db_payload, anomaly, override_context),
+                        )
+                    except Exception as telemetry_broadcast_exc:
+                        warning = f"telemetry.latest broadcast failed for {vehicle_id}: {telemetry_broadcast_exc}"
+                        print(f"⚠️ {warning}")
+                        warnings.append(warning)
+            except TimeoutError:
+                timeout_vehicle_id = str(record.get("vehicle_id") or record.get("vehicleId") or "unknown")
+                summary = {
+                    "vehicle_id": timeout_vehicle_id,
+                    "error": f"TimeoutError: record processing exceeded {TELEMETRICS_RECORD_TIMEOUT_SECONDS:.1f}s",
+                }
+                failed_records.append(summary)
+                warning = f"telemetry record timed out for {timeout_vehicle_id}: {summary['error']}"
+                print(f"⚠️ {warning}")
+                warnings.append(warning)
+                continue
+            except Exception as record_exc:
+                summary = {
+                    "vehicle_id": str(record.get("vehicle_id") or record.get("vehicleId") or "unknown"),
+                    "error": f"{record_exc.__class__.__name__}: {record_exc}",
+                }
+                failed_records.append(summary)
+                warning = f"telemetry record skipped for {summary['vehicle_id']}: {summary['error']}"
+                print(f"⚠️ {warning}")
+                warnings.append(warning)
+                continue
 
         queue_stats = await escalation_queue.stats()
         return {
@@ -267,6 +454,8 @@ async def ingest_telematics(payload: Union[Dict[str, Any], List[Dict[str, Any]]]
             "anomalies_detected": anomaly_records,
             "escalation_enqueued": escalation_enqueued,
             "queue_stats": queue_stats,
+            "warnings": warnings,
+            "failed_records": failed_records,
             "timestamp": datetime.utcnow().isoformat(),
         }
     except HTTPException:
@@ -284,6 +473,8 @@ def get_vehicle_stats(vehicle_id: str):
     3. Return Default Zeros
     """
     
+    manual_override = get_latest_manual_override(vehicle_id)
+
     # 1. Live state table (best for stream-driven UI)
     try:
         response = supabase.table("vehicle_live_state") \
@@ -316,6 +507,9 @@ def get_vehicle_stats(vehicle_id: str):
                 "risk_score": latest.get("risk_score", 0),
                 "risk_level": latest.get("risk_level", "LOW"),
                 "anomaly_detected": latest.get("anomaly_detected", False),
+                "manual_override_active": manual_override.get("manual_override_active", False),
+                "manual_override_keys": manual_override.get("manual_override_keys", []),
+                "manual_override_values": manual_override.get("manual_override_values", {}),
             }
 
     except Exception as e:
@@ -351,6 +545,9 @@ def get_vehicle_stats(vehicle_id: str):
                 "risk_score": latest.get("risk_score", 0),
                 "risk_level": _safe_risk_level(int(latest.get("risk_score") or 0)),
                 "anomaly_detected": latest.get("anomaly_detected", False),
+                "manual_override_active": manual_override.get("manual_override_active", False),
+                "manual_override_keys": manual_override.get("manual_override_keys", []),
+                "manual_override_values": manual_override.get("manual_override_values", {}),
             }
 
     except Exception as e:
@@ -361,7 +558,12 @@ def get_vehicle_stats(vehicle_id: str):
         data = TelematicsRepo.get_latest_telematics(vehicle_id)
         if data:
             print(f"💾 [Telematics] Using Static Fallback for {vehicle_id}")
-            return data
+            return {
+                **data,
+                "manual_override_active": manual_override.get("manual_override_active", False),
+                "manual_override_keys": manual_override.get("manual_override_keys", []),
+                "manual_override_values": manual_override.get("manual_override_values", {}),
+            }
 
     # 4. IF TOTALLY MISSING
     return {
@@ -369,5 +571,8 @@ def get_vehicle_stats(vehicle_id: str):
         "engine_temp": 0,
         "oil_pressure": 0,
         "rpm": 0,
-        "status": "No Connection"
+        "status": "No Connection",
+        "manual_override_active": manual_override.get("manual_override_active", False),
+        "manual_override_keys": manual_override.get("manual_override_keys", []),
+        "manual_override_values": manual_override.get("manual_override_values", {}),
     }

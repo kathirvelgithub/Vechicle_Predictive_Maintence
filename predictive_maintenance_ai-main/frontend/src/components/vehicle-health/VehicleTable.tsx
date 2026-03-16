@@ -33,28 +33,34 @@ import { stream } from '../../services/stream';
 // =========================================================
 // 🖼️ SMART IMAGE SELECTOR
 // =========================================================
-const getVehicleImage = (model: string) => {
-  if (model.includes('Thar')) return 'https://i.pinimg.com/736x/e6/60/40/e660403a381aad173d1badfef26f4940.jpg';
-  if (model.includes('Scorpio N')) return 'https://i.pinimg.com/1200x/c6/8c/93/c68c93824a95b83b4dbe91427aac8d1a.jpg';
-  if (model.includes('Scorpio Classic')) return 'https://i.pinimg.com/736x/f2/cf/5e/f2cf5ef4e4b51d29e3420fc32105c3ca.jpg';
-  if (model.includes('XUV 3XO')) return 'https://i.pinimg.com/736x/ef/63/1a/ef631aa7b136ab89aa3b9032ca948ca9.jpg';
-  if (model.includes('XUV700')) return 'https://i.pinimg.com/736x/8e/17/c3/8e17c39f9b780e88a10c2044b838f61e.jpg'; 
-  if (model.includes('City')) return 'https://i.pinimg.com/1200x/4c/87/2c/4c872ce00a4f8356cefb005088f3b8bf.jpg'; 
-  if (model.includes('Elevate')) return 'https://i.pinimg.com/1200x/a6/42/c4/a642c4eaf195c46ef3adbc1e13dac0e4.jpg'; 
-  if (model.includes('HeavyHaul')) return 'https://i.pinimg.com/736x/f2/cf/5e/f2cf5ef4e4b51d29e3420fc32105c3ca.jpg';
-  if (model.includes('Mahindra BE 6 Batman Edition')) return 'https://i.pinimg.com/736x/dc/5d/d1/dc5dd16571c1d804e9a4ef969e115112.jpg';
-  if (model.includes('Mahindra BE 6')) return 'https://imgd.aeplcdn.com/664x374/n/cw/ec/131825/be-6-exterior-right-front-three-quarter-6.png?isig=0&q=80';
-  if (model.includes('Mahindra XEV 9S')) return 'https://imgd.aeplcdn.com/642x361/n/cw/ec/212003/xev9s-exterior-right-front-three-quarter-11.png?isig=0&q=75';
-  if (model.includes('MG Windsor EV')) return 'https://i.pinimg.com/1200x/2d/ae/65/2dae657c7e74c1cd01784dad041799a7.jpg';
-  if(model.includes('BMW I7')) return 'https://i.pinimg.com/736x/c7/dd/87/c7dd874870c2da409fb6bf4bfb90e94d.jpg';
-  if (model.includes('Audi e-tron GT')) return 'https://i.pinimg.com/736x/f8/35/a3/f835a3db74f463fc1d221028f6de05d3.jpg';
-  if(model.includes('Volvo EC40')) return 'https://i.pinimg.com/1200x/dc/81/00/dc81008bc6afb0a656d508aad5103ff6.jpg';
-  if(model.includes('Porsche Taycan')) return 'https://imgd.aeplcdn.com/664x374/n/cw/ec/45063/taycan-exterior-right-front-three-quarter-6.png?isig=0&q=80';
-  
+const DEFAULT_VEHICLE_IMAGE = 'https://via.placeholder.com/640x360?text=Vehicle+Image';
+
+const getVehicleImage = (model: unknown) => {
+  const safeModel = typeof model === 'string' ? model : '';
+  if (!safeModel.trim()) return DEFAULT_VEHICLE_IMAGE;
+
+  if (safeModel.includes('Thar')) return 'https://i.pinimg.com/736x/e6/60/40/e660403a381aad173d1badfef26f4940.jpg';
+  if (safeModel.includes('Scorpio N')) return 'https://i.pinimg.com/1200x/c6/8c/93/c68c93824a95b83b4dbe91427aac8d1a.jpg';
+  if (safeModel.includes('Scorpio Classic')) return 'https://i.pinimg.com/736x/f2/cf/5e/f2cf5ef4e4b51d29e3420fc32105c3ca.jpg';
+  if (safeModel.includes('XUV 3XO')) return 'https://i.pinimg.com/736x/ef/63/1a/ef631aa7b136ab89aa3b9032ca948ca9.jpg';
+  if (safeModel.includes('XUV700')) return 'https://i.pinimg.com/736x/8e/17/c3/8e17c39f9b780e88a10c2044b838f61e.jpg';
+  if (safeModel.includes('City')) return 'https://i.pinimg.com/1200x/4c/87/2c/4c872ce00a4f8356cefb005088f3b8bf.jpg';
+  if (safeModel.includes('Elevate')) return 'https://i.pinimg.com/1200x/a6/42/c4/a642c4eaf195c46ef3adbc1e13dac0e4.jpg';
+  if (safeModel.includes('HeavyHaul')) return 'https://i.pinimg.com/736x/f2/cf/5e/f2cf5ef4e4b51d29e3420fc32105c3ca.jpg';
+  if (safeModel.includes('Mahindra BE 6 Batman Edition')) return 'https://i.pinimg.com/736x/dc/5d/d1/dc5dd16571c1d804e9a4ef969e115112.jpg';
+  if (safeModel.includes('Mahindra BE 6')) return 'https://imgd.aeplcdn.com/664x374/n/cw/ec/131825/be-6-exterior-right-front-three-quarter-6.png?isig=0&q=80';
+  if (safeModel.includes('Mahindra XEV 9S')) return 'https://imgd.aeplcdn.com/642x361/n/cw/ec/212003/xev9s-exterior-right-front-three-quarter-11.png?isig=0&q=75';
+  if (safeModel.includes('MG Windsor EV')) return 'https://i.pinimg.com/1200x/2d/ae/65/2dae657c7e74c1cd01784dad041799a7.jpg';
+  if (safeModel.includes('BMW I7')) return 'https://i.pinimg.com/736x/c7/dd/87/c7dd874870c2da409fb6bf4bfb90e94d.jpg';
+  if (safeModel.includes('Audi e-tron GT')) return 'https://i.pinimg.com/736x/f8/35/a3/f835a3db74f463fc1d221028f6de05d3.jpg';
+  if (safeModel.includes('Volvo EC40')) return 'https://i.pinimg.com/1200x/dc/81/00/dc81008bc6afb0a656d508aad5103ff6.jpg';
+  if (safeModel.includes('Porsche Taycan')) return 'https://imgd.aeplcdn.com/664x374/n/cw/ec/45063/taycan-exterior-right-front-three-quarter-6.png?isig=0&q=80';
+
+  return DEFAULT_VEHICLE_IMAGE;
 };
 
 const STREAM_CONNECTED_POLL_MS = 15000;
-const STREAM_FALLBACK_POLL_MS = 2500;
+const STREAM_FALLBACK_POLL_MS = 5000;
 const STREAM_STALE_AFTER_MS = 7000;
 
 const normalizeVehicleId = (value: unknown): string => {
@@ -75,6 +81,17 @@ const normalizeMetric = (value: unknown, fallback: number, digits = 1): number =
   return Math.round(parsed * factor) / factor;
 };
 
+const normalizeOverrideKeys = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : String(entry).trim()))
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
+};
+
 const formatMetric = (value: number, digits = 1): string => {
   if (!Number.isFinite(value)) {
     return '--';
@@ -84,15 +101,80 @@ const formatMetric = (value: number, digits = 1): string => {
   return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(digits);
 };
 
+const normalizeOptionalString = (value: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const normalizeDisplayString = (value: unknown, fallback: string): string => {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : fallback;
+};
+
+const normalizeDiagnosisSource = (source: unknown, fallbackReason?: string): string | undefined => {
+  const normalizedFallback = normalizeOptionalString(fallbackReason);
+  const rawSource = normalizeOptionalString(source);
+  if (!rawSource) {
+    return normalizedFallback ? 'rules_fallback' : undefined;
+  }
+
+  const normalized = rawSource.toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'fallback_rules' || normalized === 'rule_fallback') {
+    return 'rules_fallback';
+  }
+  if (normalized.includes('local')) {
+    return 'local_fallback';
+  }
+  if (normalized === 'llm' || normalized === 'rules_fallback') {
+    return normalized;
+  }
+  return normalized;
+};
+
+const getDiagnosisSourceBadge = (source?: string, fallbackReason?: string): { label: string; className: string } => {
+  const normalizedSource = normalizeDiagnosisSource(source, fallbackReason);
+  if (normalizedSource === 'llm') {
+    return { label: 'LLM', className: 'border-emerald-200 bg-emerald-50 text-emerald-700' };
+  }
+  if (normalizedSource === 'rules_fallback') {
+    return { label: 'Rules Fallback', className: 'border-amber-200 bg-amber-50 text-amber-700' };
+  }
+  if (normalizedSource === 'local_fallback') {
+    return { label: 'Local Fallback', className: 'border-purple-200 bg-purple-50 text-purple-700' };
+  }
+  return { label: 'Source N/A', className: 'border-slate-200 bg-slate-100 text-slate-600' };
+};
+
 const normalizeVehicleSummary = (vehicle: VehicleSummary): VehicleSummary => {
+  const manualOverrideKeys = normalizeOverrideKeys(vehicle.manual_override_keys);
+  const manualOverrideActive = Boolean(vehicle.manual_override_active || manualOverrideKeys.length > 0);
+  const fallbackReason = normalizeOptionalString(vehicle.fallback_reason);
+  const normalizedModel = normalizeDisplayString(vehicle.model, 'Unknown Model');
+  const normalizedAction = normalizeDisplayString(vehicle.action, 'Monitoring');
+  const normalizedFailure = normalizeDisplayString(vehicle.predictedFailure, 'System Healthy');
+  const normalizedTelematics = normalizeDisplayString(vehicle.telematics, 'Unavailable');
+
   return {
     ...vehicle,
     vin: normalizeVehicleId(vehicle.vin),
+    model: normalizedModel,
+    telematics: manualOverrideActive ? 'Live (Manual Override)' : normalizedTelematics,
     engine_temp: normalizeMetric(vehicle.engine_temp, 0),
     oil_pressure: normalizeMetric(vehicle.oil_pressure, 0),
     battery_voltage: normalizeMetric(vehicle.battery_voltage, 24.0),
     probability: vehicle.probability > 0 ? vehicle.probability : 15,
-    predictedFailure: vehicle.probability > 0 ? vehicle.predictedFailure : "System Healthy",
+    predictedFailure: vehicle.probability > 0 ? normalizedFailure : 'System Healthy',
+    action: normalizedAction,
+    manual_override_active: manualOverrideActive,
+    manual_override_keys: manualOverrideKeys,
+    diagnosis_source: normalizeDiagnosisSource(vehicle.diagnosis_source, fallbackReason),
+    fallback_reason: fallbackReason,
   };
 };
 
@@ -104,6 +186,7 @@ interface VehicleTableProps {
 export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableProps) {
   const [data, setData] = useState<VehicleSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isStreamConnected, setIsStreamConnected] = useState(false);
   const [hasFreshStream, setHasFreshStream] = useState(false);
   const staleStreamTimerRef = useRef<number | null>(null);
   
@@ -147,6 +230,7 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     stream.start();
 
     const unsubscribeConnection = stream.subscribeConnection((connected) => {
+      setIsStreamConnected(connected);
       if (!connected) {
         clearStaleStreamTimer();
         setHasFreshStream(false);
@@ -162,6 +246,11 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
 
       if (event.topic === "telemetry.latest") {
         markStreamHeartbeat();
+        const manualOverrideKeys = normalizeOverrideKeys(payload.manual_override_keys);
+        const manualOverrideActive = Boolean(
+          (payload.manual_override_active as boolean | undefined) || manualOverrideKeys.length > 0
+        );
+
         setData((previous) =>
           previous.map((vehicle) => {
             if (normalizeVehicleId(vehicle.vin) !== vehicleId) {
@@ -193,13 +282,15 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
 
             return {
               ...vehicle,
-              telematics: "Live",
+              telematics: manualOverrideActive ? 'Live (Manual Override)' : 'Live',
               engine_temp: normalizeMetric(payload.engine_temp_c, vehicle.engine_temp || 0),
               oil_pressure: normalizeMetric(payload.oil_pressure_psi, vehicle.oil_pressure || 0),
               battery_voltage: normalizeMetric(payload.battery_voltage, vehicle.battery_voltage || 24),
               probability: nextRisk,
               action: nextAction,
               predictedFailure: nextFailure,
+              manual_override_active: manualOverrideActive,
+              manual_override_keys: manualOverrideKeys,
             };
           })
         );
@@ -234,6 +325,8 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
 
       if (event.topic === "analysis.completed") {
         const bookingId = typeof payload.booking_id === "string" ? payload.booking_id : "";
+        const diagnosisSource = normalizeDiagnosisSource(payload.diagnosis_source, normalizeOptionalString(payload.fallback_reason));
+        const fallbackReason = normalizeOptionalString(payload.fallback_reason);
 
         setData((previous) =>
           previous.map((vehicle) => {
@@ -257,6 +350,8 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
                     : riskLevel === "HIGH"
                       ? "Watch Alert"
                       : "Monitoring",
+              diagnosis_source: diagnosisSource || vehicle.diagnosis_source,
+              fallback_reason: fallbackReason || vehicle.fallback_reason,
             };
           })
         );
@@ -271,7 +366,7 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
   }, [clearStaleStreamTimer, markStreamHeartbeat]);
 
   useEffect(() => {
-    const intervalMs = hasFreshStream ? STREAM_CONNECTED_POLL_MS : STREAM_FALLBACK_POLL_MS;
+    const intervalMs = isStreamConnected ? STREAM_CONNECTED_POLL_MS : STREAM_FALLBACK_POLL_MS;
     const intervalId = window.setInterval(() => {
       void loadFleet();
     }, intervalMs);
@@ -279,7 +374,7 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [hasFreshStream, loadFleet]);
+  }, [isStreamConnected, loadFleet]);
 
   // 2. DEFINE COLUMNS
   const columns = useMemo<ColumnDef<VehicleSummary>[]>(() => [
@@ -308,7 +403,11 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     {
       accessorKey: "model",
       header: "Model",
-      cell: ({ getValue }) => <span className="font-semibold text-slate-700">{getValue() as string}</span>,
+      cell: ({ getValue }) => {
+        const value = getValue();
+        const model = normalizeDisplayString(value, 'Unknown Model');
+        return <span className="font-semibold text-slate-700">{model}</span>;
+      },
     },
     
     // ✅ NEW COLUMN: Engine Temp
@@ -360,27 +459,48 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
       header: "Diagnosis",
       cell: ({ row }) => {
         const prob = row.original.probability;
+        const sourceBadge = getDiagnosisSourceBadge(row.original.diagnosis_source, row.original.fallback_reason);
         return (
-          <span className={`text-xs font-bold px-2 py-1 rounded ${
-            prob >= 80 ? 'bg-red-100 text-red-700' : 
-            prob >= 50 ? 'bg-amber-100 text-amber-700' : 
-            'bg-slate-100 text-slate-600'
-          }`}>
-            {row.original.predictedFailure}
-          </span>
+          <div className="space-y-1">
+            <span className={`inline-flex text-xs font-bold px-2 py-1 rounded ${
+              prob >= 80 ? 'bg-red-100 text-red-700' :
+              prob >= 50 ? 'bg-amber-100 text-amber-700' :
+              'bg-slate-100 text-slate-600'
+            }`}>
+              {row.original.predictedFailure}
+            </span>
+            <span className={`inline-flex text-[11px] font-semibold px-2 py-0.5 rounded border ${sourceBadge.className}`}>
+              {sourceBadge.label}
+            </span>
+          </div>
         );
       },
     },
     {
       accessorKey: "action",
       header: "Status",
-      cell: ({ getValue }) => {
-        const status = getValue() as string;
+      cell: ({ row, getValue }) => {
+        const status = normalizeDisplayString(getValue(), 'Monitoring');
+        const manualOverrideActive = Boolean(row.original.manual_override_active);
         let style = 'border-slate-200 bg-slate-50 text-slate-600';
         if (status.includes('Booked')) style = 'border-green-200 bg-green-50 text-green-700';
         if (status.includes('Critical')) style = 'border-red-200 bg-red-50 text-red-700 animate-pulse';
-        
-        return <Badge variant="outline" className={`text-xs font-normal border ${style}`}>{status}</Badge>;
+
+        return (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="outline" className={`text-xs font-normal border ${style}`}>{status}</Badge>
+            {manualOverrideActive && (
+              <Badge variant="outline" className="text-xs font-normal border-amber-200 bg-amber-50 text-amber-700">
+                Manual Override
+              </Badge>
+            )}
+            {row.original.fallback_reason && (
+              <Badge variant="outline" className="text-xs font-normal border-amber-200 bg-amber-50 text-amber-700" title={row.original.fallback_reason}>
+                Fallback
+              </Badge>
+            )}
+          </div>
+        );
       }
     }
   ], []);
@@ -416,13 +536,15 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     }
 
     const headers = [
-        "VIN", "Model", "Temp (C)", "Oil (PSI)", "Batt (V)", "Diagnosis", "Risk %", "Status"
+      "VIN", "Model", "Temp (C)", "Oil (PSI)", "Batt (V)", "Diagnosis", "Diagnosis Source", "Fallback Reason", "Risk %", "Status"
     ];
 
     const escapeCsv = (str: any) => {
         if (str === null || str === undefined) return "";
         const stringValue = String(str);
-        if (stringValue.includes(",")) return `"${stringValue}"`;
+      if (stringValue.includes(",") || stringValue.includes('"') || stringValue.includes("\n")) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
         return stringValue;
     };
 
@@ -435,6 +557,8 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
             escapeCsv(r.oil_pressure),
             escapeCsv(r.battery_voltage),
             escapeCsv(r.predictedFailure),
+            escapeCsv(getDiagnosisSourceBadge(r.diagnosis_source, r.fallback_reason).label),
+            escapeCsv(r.fallback_reason || ''),
             escapeCsv(r.probability),
             escapeCsv(r.action)
         ].join(",");
@@ -459,9 +583,9 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
           <div className="flex items-center space-x-2">
             <Badge
               variant="outline"
-              className={hasFreshStream ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
+              className={isStreamConnected ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}
             >
-              {hasFreshStream ? "Stream Live" : "Polling Fallback"}
+              {isStreamConnected ? "Stream Live" : "Polling Fallback"}
             </Badge>
             
             {/* 🔍 SEARCH BAR */}

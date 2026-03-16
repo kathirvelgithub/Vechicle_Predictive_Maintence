@@ -2,6 +2,7 @@ import traceback
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
+from app.services.live_stream import stream_manager
 from database import supabase
 
 router = APIRouter()
@@ -30,14 +31,24 @@ class NotificationOut(BaseModel):
 
 # --- GET /notifications ---
 @router.get("/", response_model=List[NotificationOut])
-async def list_notifications(vehicle_id: Optional[str] = None, limit: int = 50):
+async def list_notifications(
+    vehicle_id: Optional[str] = None,
+    recipient: Optional[str] = None,
+    unread_only: bool = False,
+    limit: int = 50,
+):
     """List notifications, optionally filtered by vehicle_id."""
     try:
         query = supabase.table("notifications").select("*")
         if vehicle_id:
             query = query.eq("vehicle_id", vehicle_id)
+        if recipient:
+            query = query.eq("recipient", recipient)
+        if unread_only:
+            query = query.eq("read", False)
+
         response = query.execute()
-        rows = response["data"] if isinstance(response, dict) else []
+        rows = response.get("data", []) if isinstance(response, dict) else []
         # Sort newest first and limit
         rows.sort(key=lambda r: r.get("sent_at", ""), reverse=True)
         return rows[:limit]
@@ -60,11 +71,20 @@ async def create_notification(notif: NotificationCreate):
             "channel": notif.channel,
             "recipient": notif.recipient,
         }
-        result = supabase.table("notifications").insert(row)
-        data = result["data"] if isinstance(result, dict) else result
-        if isinstance(data, list) and len(data) > 0:
-            return data[0]
-        return {**row, "id": "pending", "read": False, "acknowledged": False}
+        result = supabase.table("notifications").insert(row).execute()
+        if isinstance(result, dict) and result.get("error"):
+            raise RuntimeError(str(result["error"]))
+
+        data = result.get("data", []) if isinstance(result, dict) else []
+        created = data[0] if isinstance(data, list) and data else {**row, "id": "pending", "read": False, "acknowledged": False}
+
+        await stream_manager.broadcast(
+            "notification.created",
+            {
+                "notification": created,
+            },
+        )
+        return created
     except Exception as e:
         print(f"❌ Error creating notification: {e}")
         traceback.print_exc()
@@ -79,6 +99,14 @@ async def mark_notification_read(notification_id: str):
         supabase.table("notifications").update({
             "read": True
         }).eq("id", notification_id).execute()
+
+        await stream_manager.broadcast(
+            "notification.updated",
+            {
+                "id": notification_id,
+                "read": True,
+            },
+        )
         return {"status": "ok", "id": notification_id, "read": True}
     except Exception as e:
         print(f"❌ Error marking notification read: {e}")
@@ -95,6 +123,15 @@ async def acknowledge_notification(notification_id: str):
             "acknowledged": True,
             "read": True,
         }).eq("id", notification_id).execute()
+
+        await stream_manager.broadcast(
+            "notification.updated",
+            {
+                "id": notification_id,
+                "acknowledged": True,
+                "read": True,
+            },
+        )
         return {"status": "ok", "id": notification_id, "acknowledged": True}
     except Exception as e:
         print(f"❌ Error acknowledging notification: {e}")

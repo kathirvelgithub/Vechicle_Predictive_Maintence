@@ -1,7 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { SchedulerCalendar } from './SchedulerCalendar';
+import { SchedulingApprovalInbox } from './SchedulingApprovalInbox';
+import { useAuth } from '../../context/AuthContext';
 
 export function Scheduling() {
+  const { user } = useAuth();
+  const [refreshToken, setRefreshToken] = useState(0);
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -10,8 +15,13 @@ export function Scheduling() {
         <p className="text-slate-600">AI-powered scheduling optimization and capacity planning</p>
       </div>
 
+      <SchedulingApprovalInbox
+        defaultApprover={user?.email}
+        onDecisionComplete={() => setRefreshToken((value) => value + 1)}
+      />
+
       {/* The Calendar Component */}
-      <SchedulerCalendar />
+      <SchedulerCalendar refreshToken={refreshToken} />
     </div>
   );
 }

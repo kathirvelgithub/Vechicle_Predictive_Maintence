@@ -1,4 +1,4 @@
-import { useState, MouseEvent } from 'react';
+import { useEffect, useState, MouseEvent } from 'react';
 import { Search, Bell, Settings as SettingsIcon } from 'lucide-react';
 import MenuIcon from '@mui/icons-material/Menu';
 
@@ -29,6 +29,8 @@ import {
 import { Button } from '../ui/button';
 import { useAuth } from '../../context/AuthContext';
 import { UserProfilePanel } from './UserProfilePanel';
+import { api, NotificationItem } from '../../services/api';
+import { stream } from '../../services/stream';
 
 interface HeaderProps {
   onNavigate?: (page: string) => void;
@@ -59,13 +61,83 @@ export function Header({ onNavigate, onMenuClick }: HeaderProps) {
     }
   };
 
-  // --- Notifications State ---
-  const [notifications] = useState([
-    { id: 1, text: 'Diagnosis Agent identified transmission issue on VIN#12345', time: '5m ago', unread: true },
-    { id: 2, text: 'Scheduling Agent optimized 12 appointments', time: '15m ago', unread: true },
-    { id: 3, text: 'Security Alert: Anomalous API access blocked', time: '1h ago', unread: false },
-  ]);
-  const unreadCount = notifications.filter((n) => n.unread).length;
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const loadNotifications = async () => {
+    try {
+      const rows = await api.getNotifications({ recipient: user?.email, limit: 10 });
+      setNotifications(rows);
+    } catch {
+      // Keep UI usable even if notifications endpoint is unavailable.
+      setNotifications([]);
+    }
+  };
+
+  useEffect(() => {
+    void loadNotifications();
+  }, [user?.email]);
+
+  useEffect(() => {
+    stream.start();
+    const unsubscribe = stream.subscribe((event) => {
+      if (event.topic !== 'notification.created' && event.topic !== 'notification.updated') {
+        return;
+      }
+      void loadNotifications();
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user?.email]);
+
+  const formatNotificationTime = (sentAt?: string) => {
+    if (!sentAt) {
+      return 'just now';
+    }
+
+    const parsed = new Date(sentAt);
+    if (Number.isNaN(parsed.getTime())) {
+      return sentAt;
+    }
+
+    const minutes = Math.round((Date.now() - parsed.getTime()) / 60000);
+    if (minutes <= 1) {
+      return 'just now';
+    }
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+    const days = Math.round(hours / 24);
+    return `${days}d ago`;
+  };
+
+  const markAsRead = async (notification: NotificationItem) => {
+    if (!notification.id || notification.read) {
+      return;
+    }
+
+    try {
+      await api.markNotificationRead(notification.id);
+      setNotifications((previous) =>
+        previous.map((item) =>
+          item.id === notification.id
+            ? {
+                ...item,
+                read: true,
+              }
+            : item,
+        ),
+      );
+    } catch {
+      // Keep silent to avoid disrupting navigation for transient failures.
+    }
+  };
 
   const initials = user?.fullName
     ? user.fullName.split(' ').map((n) => n[0]).join('').substring(0, 2).toUpperCase()
@@ -116,17 +188,30 @@ export function Header({ onNavigate, onMenuClick }: HeaderProps) {
           <DropdownMenuContent align="end" className="w-80">
             <DropdownMenuLabel>Notifications</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {notifications.map((notification) => (
-              <DropdownMenuItem key={notification.id} className="flex flex-col items-start p-3 cursor-pointer">
-                <div className="flex items-start justify-between w-full">
-                  <p className="text-sm pr-2 font-medium text-slate-700">{notification.text}</p>
-                  {notification.unread && (
-                    <div className="w-2 h-2 bg-blue-600 rounded-full mt-1 flex-shrink-0" />
-                  )}
-                </div>
-                <span className="text-xs text-slate-500 mt-1">{notification.time}</span>
+            {notifications.length === 0 ? (
+              <DropdownMenuItem className="text-sm text-slate-500" disabled>
+                No notifications yet
               </DropdownMenuItem>
-            ))}
+            ) : (
+              notifications.map((notification) => (
+                <DropdownMenuItem
+                  key={notification.id || `${notification.vehicle_id}-${notification.sent_at}`}
+                  className="flex cursor-pointer flex-col items-start p-3"
+                  onClick={() => void markAsRead(notification)}
+                >
+                  <div className="flex w-full items-start justify-between">
+                    <p className="pr-2 text-sm font-medium text-slate-700">
+                      {notification.title || notification.message || 'Notification'}
+                    </p>
+                    {!notification.read && <div className="mt-1 h-2 w-2 flex-shrink-0 rounded-full bg-blue-600" />}
+                  </div>
+                  {notification.message && (
+                    <p className="mt-1 line-clamp-2 text-xs text-slate-600">{notification.message}</p>
+                  )}
+                  <span className="mt-1 text-xs text-slate-500">{formatNotificationTime(notification.sent_at)}</span>
+                </DropdownMenuItem>
+              ))
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
 

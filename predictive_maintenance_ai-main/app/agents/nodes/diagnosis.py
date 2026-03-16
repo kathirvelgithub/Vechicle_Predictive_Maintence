@@ -3,6 +3,7 @@ import re
 # Import your AgentState definition
 from app.agents.state import AgentState
 from app.agents.llm_gateway import invoke_with_policy
+from app.domain.diagnosis_rules import generate_rule_based_diagnosis
 
 # ✅ IMPORT KNOWLEDGE BASE UTILITY
 try:
@@ -31,6 +32,13 @@ def diagnosis_node(state: AgentState) -> AgentState:
 
     eng_temp = safe_get('engine_temp_c', 0)
     oil_psi = safe_get('oil_pressure_psi', 50) # Default to healthy 50 if missing
+    vehicle_metadata = state.get("vehicle_metadata") or {}
+    hybrid_risk_score = state.get("risk_score", 0)
+    hybrid_risk_level = str(state.get("risk_level", "LOW")).upper()
+    rule_risk_score = state.get("rule_risk_score", hybrid_risk_score)
+    rule_risk_level = str(state.get("rule_risk_level", hybrid_risk_level)).upper()
+    ml_risk_score = state.get("ml_risk_score")
+    risk_model_used = state.get("risk_model_used", "rules-only")
 
     # 2. Prepare Issues List
     detected = state.get("detected_issues", [])
@@ -73,12 +81,18 @@ def diagnosis_node(state: AgentState) -> AgentState:
     You are a Senior Fleet Mechanic AI. 
     Analyze this truck's status based on the Telematics and the Service Manual provided.
     
-    Vehicle: {state.get('vehicle_metadata', {}).get('model', 'Unknown Model')}
+    Vehicle: {vehicle_metadata.get('model', 'Unknown Model')}
     Issues Detected: {issues}
     
     Telematics Data:
     - Oil Pressure: {oil_psi} psi
     - Engine Temp: {eng_temp} C
+
+    Risk Context:
+    - Hybrid Risk Score: {hybrid_risk_score}/100 ({hybrid_risk_level})
+    - Rule Guardrail Score: {rule_risk_score}/100 ({rule_risk_level})
+    - ML Calibrated Score: {ml_risk_score if ml_risk_score is not None else 'Unavailable'}
+    - Risk Model Source: {risk_model_used}
     
     📘 OFFICIAL SERVICE MANUAL GUIDELINES:
     {expert_advice}
@@ -97,18 +111,57 @@ def diagnosis_node(state: AgentState) -> AgentState:
     
     ### ⚠️ Risk Assessment
     * **Severity**: [Critical / High / Medium / Low]
+
+    Guardrail Rule: Do not output a severity lower than {rule_risk_level}.
     """
 
     # 5. Call LLM
     try:
         content, model_used = invoke_with_policy(prompt, profile="diagnosis")
+        if not str(content or "").strip():
+            raise ValueError("empty_diagnosis_response")
         state.setdefault("model_used_by_node", {})["diagnosis"] = model_used
+        state["diagnosis_source"] = "llm"
+        state["fallback_reason"] = None
     except Exception as e:
         print(f"❌ Diagnosis Agent LLM Error: {e}")
-        content = f"Error generating diagnosis: {str(e)}"
-        state.setdefault("model_used_by_node", {})["diagnosis"] = "error"
-        state["priority_level"] = "High" # Default to High on error to be safe
-        state["diagnosis_report"] = content
+        fallback = generate_rule_based_diagnosis(
+            vehicle_id=v_id,
+            telematics_data=telematics,
+            detected_issues=state.get("detected_issues"),
+        )
+
+        state.setdefault("model_used_by_node", {})["diagnosis"] = "rules-fallback"
+        state["diagnosis_report"] = fallback["diagnosis_report"]
+        state["recommended_action"] = fallback["recommended_action"]
+        state["priority_level"] = fallback["priority_level"]
+
+        if not state.get("detected_issues"):
+            state["detected_issues"] = fallback["detected_issues"]
+
+        try:
+            existing_risk_score = int(float(state.get("risk_score") or 0))
+        except (TypeError, ValueError):
+            existing_risk_score = 0
+
+        if existing_risk_score <= 0:
+            state["risk_score"] = fallback["risk_score"]
+
+        current_risk_level = str(state.get("risk_level") or "").strip().upper()
+        if (
+            not current_risk_level
+            or (
+                existing_risk_score <= 0
+                and current_risk_level == "LOW"
+                and str(fallback.get("risk_level") or "LOW").upper() != "LOW"
+            )
+        ):
+            state["risk_level"] = fallback["risk_level"]
+
+        state["error_message"] = f"diagnosis_llm_failed: {e.__class__.__name__}"
+        state["diagnosis_source"] = "rules_fallback"
+        state["fallback_reason"] = f"diagnosis_llm_failed:{e.__class__.__name__}"
+        state.setdefault("node_statuses", {})["diagnosis"] = "fallback_rules"
         return state
 
     # 6. Save Report to State
@@ -129,6 +182,22 @@ def diagnosis_node(state: AgentState) -> AgentState:
             state["priority_level"] = "High"
         else:
             state["priority_level"] = "Medium"
+
+    # 7b. Enforce rule guardrail at runtime (do not allow lower severity than rule risk level)
+    severity_rank = {
+        "LOW": 1,
+        "MEDIUM": 2,
+        "HIGH": 3,
+        "CRITICAL": 4,
+    }
+
+    llm_level = str(state.get("priority_level") or "Medium").upper()
+    guardrail_level = str(rule_risk_level or "LOW").upper()
+    if severity_rank.get(llm_level, 2) < severity_rank.get(guardrail_level, 1):
+        state["priority_level"] = guardrail_level.capitalize()
+        existing_reason = str(state.get("fallback_reason") or "").strip()
+        guardrail_reason = "severity_clamped_to_rule_guardrail"
+        state["fallback_reason"] = f"{existing_reason} | {guardrail_reason}" if existing_reason else guardrail_reason
 
     # 8. Extract Recommended Action (First line of Action Plan)
     # This helps downstream agents (like sending an SMS) without sending the whole paragraph
