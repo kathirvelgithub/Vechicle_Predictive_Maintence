@@ -143,24 +143,19 @@ def scheduling_node(state: AgentState) -> AgentState:
     priority = state.get("priority_level", "Medium")
     
     # ---------------------------------------------------------
-    # 🧠 INTELLIGENT SCHEDULING LOGIC
+    # 🧠 CONFIRMATION-FIRST SCHEDULING LOGIC
     # ---------------------------------------------------------
-    should_book = False
+    customer_decision = str(state.get("customer_decision") or "").strip().upper()
+    should_book = customer_decision in {"BOOKED", "YES", "CONFIRMED"}
 
-    if priority == "Critical":
-        # Case 1: Critical Issue -> AUTO BOOK (No user permission needed)
-        print("🚨 [Scheduler] Critical issue detected. Auto-authorizing booking.")
-        should_book = True
-        
-    elif state.get("customer_decision") == "BOOKED":
-        # Case 2: Non-Critical but User said "Yes" in Customer Engagement
-        print(f"👤 [Scheduler] Customer explicitly authorized booking for {priority} priority.")
-        should_book = True
-        
-    else:
-        # Case 3: Non-Critical and No User Confirmation -> SKIP
-        print(f"⏸️ [Scheduler] Priority is '{priority}' and no customer confirmation. Skipping booking.")
+    if not should_book:
+        print(
+            f"⏸️ [Scheduler] Booking skipped for priority '{priority}'. "
+            f"Awaiting explicit customer YES/CONFIRMED decision (current='{customer_decision or 'PENDING'}')."
+        )
         return state
+
+    print(f"👤 [Scheduler] Customer explicitly authorized booking for {priority} priority.")
 
     # ---------------------------------------------------------
     # ⚡ EXECUTE BOOKING (Only if should_book is True)

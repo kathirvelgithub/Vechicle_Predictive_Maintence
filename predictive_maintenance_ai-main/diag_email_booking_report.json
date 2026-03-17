@@ -1,0 +1,108 @@
+{
+  "timestamp_utc": "2026-03-16T17:31:25.002621+00:00",
+  "api_base": "http://localhost:8000",
+  "decision": "yes",
+  "target": {
+    "recommendation_id": "RCM-C918CE57",
+    "vehicle_id": "V-303",
+    "status": "pending_customer_confirmation",
+    "booking_id": null,
+    "recommended_start": "2026-03-17 09:00:00",
+    "customer_confirmation_status": "pending",
+    "email_request_status": "pending",
+    "email_requested_at": "2026-03-16 23:00:50.829193",
+    "email_expires_at": "2026-03-17 17:30:50.754865",
+    "email_address": "codedeveloper2004@gmail.com"
+  },
+  "before": {
+    "booking_exists_for_recommendation_booking_id": false,
+    "booking": null
+  },
+  "request": {
+    "recommendation_id": "RCM-C918CE57",
+    "confirmation_code": "148226",
+    "decision": "yes",
+    "recipient_email": "codedeveloper2004@gmail.com"
+  },
+  "api_result": {
+    "ok": true,
+    "status_code": 200,
+    "response": {
+      "status": "booked",
+      "booking_id": "BK-DBF9120C",
+      "recommendation": {
+        "recommendation_id": "RCM-C918CE57",
+        "vehicle_id": "V-303",
+        "recommended_start": "2026-03-17T09:00:00",
+        "estimated_duration_hours": 2.0,
+        "service_type": "repair",
+        "priority": "high",
+        "risk_score": 45,
+        "reason": "Check coolant level and condition, and inspect radiator and hoses for leaks to address potential overheating causes.",
+        "status": "booked",
+        "recipient": "maintenance.automation@fleet.local",
+        "suggested_by": "predictive-high-risk-auto",
+        "approver_email": "risk.automation@fleet.local",
+        "approved_at": "2026-03-16T23:00:50.910751",
+        "booking_id": "BK-DBF9120C",
+        "customer_confirmation_status": "confirmed",
+        "customer_confirmation_method": "email",
+        "customer_confirmation_email": "codedeveloper2004@gmail.com",
+        "customer_confirmation_phone": null,
+        "customer_confirmation_requested_at": "2026-03-16T23:00:50.910751",
+        "customer_confirmation_confirmed_at": "2026-03-16T23:01:28.021339",
+        "customer_confirmation_declined_at": null,
+        "customer_confirmation_reference": "RCM-C918CE57-DA20F2",
+        "created_at": "2026-03-16T23:00:45.194154",
+        "updated_at": "2026-03-16T23:01:28.021339"
+      },
+      "notification": {
+        "id": "d198704b-2270-4349-97b3-eb724cb40b46",
+        "vehicle_id": "V-303",
+        "notification_type": "booking_confirmed",
+        "title": "Booking confirmed for V-303",
+        "message": "Customer confirmed recommendation RCM-C918CE57 by email. Booking BK-DBF9120C is confirmed for 2026-03-17T09:00:00.",
+        "sent_at": "2026-03-16T23:01:28.130751",
+        "channel": "email",
+        "recipient": "codedeveloper2004@gmail.com",
+        "read": false,
+        "acknowledged": false
+      },
+      "email_confirmation": {
+        "status": "sent",
+        "provider": "gmail-smtp",
+        "provider_message_id": "<a1276acb5bc64ce796a08a31534dcc17@gmail-smtp.local>",
+        "error": null,
+        "simulated": false
+      },
+      "message": "Customer confirmed booking via email."
+    }
+  },
+  "after": {
+    "recommendation": {
+      "recommendation_id": "RCM-C918CE57",
+      "vehicle_id": "V-303",
+      "status": "booked",
+      "booking_id": "BK-DBF9120C",
+      "customer_confirmation_status": "confirmed",
+      "customer_confirmation_method": "email",
+      "customer_confirmation_email": "codedeveloper2004@gmail.com",
+      "customer_confirmation_confirmed_at": "2026-03-16 23:01:28.021339",
+      "customer_confirmation_declined_at": null,
+      "updated_at": "2026-03-16 23:01:28.021339"
+    },
+    "booking_lookup_id": "BK-DBF9120C",
+    "booking_exists": true,
+    "booking": {
+      "booking_id": "BK-DBF9120C",
+      "vehicle_id": "V-303",
+      "scheduled_date": "2026-03-17 09:00:00",
+      "service_type": "repair",
+      "estimated_duration_hours": "2.00",
+      "status": "confirmed",
+      "priority": "high",
+      "created_at": "2026-03-16 23:01:27.903931",
+      "updated_at": "2026-03-16 23:01:27.903931"
+    }
+  }
+}

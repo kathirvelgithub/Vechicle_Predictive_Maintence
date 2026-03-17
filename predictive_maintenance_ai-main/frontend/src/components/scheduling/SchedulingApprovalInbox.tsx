@@ -24,6 +24,15 @@ const PRIORITY_CLASS: Record<string, string> = {
   low: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
 
+const STATUS_CLASS: Record<string, string> = {
+  recommended: 'bg-slate-100 text-slate-800 border-slate-200',
+  booked: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  pending_customer_confirmation: 'bg-blue-100 text-blue-800 border-blue-200',
+  customer_declined: 'bg-rose-100 text-rose-800 border-rose-200',
+  conflict: 'bg-amber-100 text-amber-800 border-amber-200',
+  rejected: 'bg-zinc-100 text-zinc-700 border-zinc-200',
+};
+
 const formatDateTime = (value?: string): string => {
   if (!value) {
     return 'Unavailable';
@@ -38,6 +47,17 @@ const formatDateTime = (value?: string): string => {
 const toPriorityClass = (priority?: string): string => {
   const normalized = String(priority || 'medium').toLowerCase();
   return PRIORITY_CLASS[normalized] || PRIORITY_CLASS.medium;
+};
+
+const formatConfirmationChannel = (method?: string): string => {
+  const normalized = String(method || '').trim().toLowerCase();
+  if (normalized === 'email') {
+    return 'email';
+  }
+  if (normalized === 'sms') {
+    return 'SMS';
+  }
+  return 'customer';
 };
 
 export function SchedulingApprovalInbox({
@@ -110,6 +130,14 @@ export function SchedulingApprovalInbox({
 
         if (result.status === 'booked') {
           setStatusMessage(`Approved ${recommendationId}. Booking ${result.booking_id} confirmed.`);
+        } else if (result.status === 'pending_customer_confirmation') {
+          const confirmationChannel = formatConfirmationChannel(
+            result.recommendation?.customer_confirmation_method ||
+            (result.email_confirmation ? 'email' : result.sms_confirmation ? 'sms' : undefined),
+          );
+          setStatusMessage(
+            `Approved ${recommendationId}. Waiting for customer ${confirmationChannel} confirmation before booking.`,
+          );
         } else if (result.status === 'conflict') {
           const alternative = result.alternative_start ? ` Alternative: ${formatDateTime(result.alternative_start)}.` : '';
           setStatusMessage(`Conflict detected for ${recommendationId}.${alternative}`);
@@ -133,6 +161,10 @@ export function SchedulingApprovalInbox({
       const recommendationId = recommendation.recommendation_id;
       const recommendationNote = notesByRecommendation[recommendationId] || '';
       const isProcessing = processingId === recommendationId;
+      const currentStatus = String(recommendation.status || '').trim().toLowerCase();
+      const isAwaitingCustomer = currentStatus === 'pending_customer_confirmation';
+      const confirmationChannel = formatConfirmationChannel(recommendation.customer_confirmation_method);
+      const confirmationTarget = recommendation.customer_confirmation_email || recommendation.customer_confirmation_phone;
       return (
         <div
           key={recommendationId}
@@ -145,6 +177,9 @@ export function SchedulingApprovalInbox({
             </div>
             <Badge variant="outline" className={toPriorityClass(recommendation.priority)}>
               {String(recommendation.priority || 'medium').toUpperCase()}
+            </Badge>
+            <Badge variant="outline" className={STATUS_CLASS[currentStatus] || STATUS_CLASS.recommended}>
+              {String(recommendation.status || 'recommended').replace(/_/g, ' ').toUpperCase()}
             </Badge>
           </div>
 
@@ -161,6 +196,12 @@ export function SchedulingApprovalInbox({
             <p>
               <span className="font-medium">Alert recipient:</span> {recommendation.recipient || 'Unassigned'}
             </p>
+            {isAwaitingCustomer ? (
+              <p>
+                <span className="font-medium">Customer channel:</span> {confirmationChannel}
+                {confirmationTarget ? ` (${confirmationTarget})` : ''}
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-3 rounded-md bg-slate-50 p-3 text-sm text-slate-700">
@@ -179,23 +220,31 @@ export function SchedulingApprovalInbox({
               }
             />
             <div className="flex flex-wrap gap-2">
-              <Button
-                className="bg-emerald-600 hover:bg-emerald-700"
-                disabled={isProcessing}
-                onClick={() => void executeDecision(recommendationId, 'approve')}
-              >
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Approve and Book
-              </Button>
-              <Button
-                variant="outline"
-                className="border-rose-300 text-rose-700 hover:bg-rose-50"
-                disabled={isProcessing}
-                onClick={() => void executeDecision(recommendationId, 'reject')}
-              >
-                <XCircle className="mr-2 h-4 w-4" />
-                Reject
-              </Button>
+              {!isAwaitingCustomer ? (
+                <>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    disabled={isProcessing}
+                    onClick={() => void executeDecision(recommendationId, 'approve')}
+                  >
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    Approve and Book
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="border-rose-300 text-rose-700 hover:bg-rose-50"
+                    disabled={isProcessing}
+                    onClick={() => void executeDecision(recommendationId, 'reject')}
+                  >
+                    <XCircle className="mr-2 h-4 w-4" />
+                    Reject
+                  </Button>
+                </>
+              ) : (
+                <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                  Customer {confirmationChannel} confirmation is pending for this recommendation.
+                </div>
+              )}
             </div>
           </div>
         </div>

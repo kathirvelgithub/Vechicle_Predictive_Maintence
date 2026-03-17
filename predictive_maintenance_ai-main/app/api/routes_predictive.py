@@ -7,6 +7,10 @@ from datetime import datetime, timezone
 from database import supabase  # ✅ DB Client
 from app.services.live_stream import stream_manager
 from app.domain.diagnosis_rules import generate_rule_based_diagnosis
+from app.config.settings import is_email_confirmation_vehicle, is_sms_pilot_vehicle
+from app.api.routes_scheduling import ensure_customer_confirmation_from_risk_event
+from app.services.email_gateway import normalize_email, send_email
+from app.services.sms_gateway import normalize_phone, send_sms
 
 # ✅ IMPORT YOUR AGENT
 try:
@@ -66,6 +70,43 @@ def parse_timestamp(value: Optional[str]) -> Optional[str]:
         except ValueError:
             continue
     return None
+
+
+def _resolve_vehicle_contacts(vehicle_id: str, vehicle_metadata: Optional[Dict[str, Any]]) -> Dict[str, Optional[str]]:
+    metadata = vehicle_metadata or {}
+    owner_phone = normalize_phone(metadata.get("owner_phone"))
+    owner_email = normalize_email(metadata.get("owner_email"))
+
+    if owner_phone and owner_email:
+        return {
+            "owner_phone": owner_phone,
+            "owner_email": owner_email,
+        }
+
+    try:
+        rows = (
+            supabase.table("vehicles")
+            .select("owner_phone, owner_email")
+            .eq("vehicle_id", vehicle_id)
+            .limit(1)
+            .execute()
+            .get("data")
+            or []
+        )
+    except Exception:
+        rows = []
+
+    if rows:
+        db_row = rows[0] or {}
+        if not owner_phone:
+            owner_phone = normalize_phone(db_row.get("owner_phone"))
+        if not owner_email:
+            owner_email = normalize_email(db_row.get("owner_email"))
+
+    return {
+        "owner_phone": owner_phone,
+        "owner_email": owner_email,
+    }
 
 
 def _derive_diagnosis_source(result: Dict[str, Any]) -> str:
@@ -334,16 +375,62 @@ def persist_analysis_outputs(request: PredictiveRequest, result: Dict[str, Any])
         "processing_time_ms": None,
     }).execute()
 
+    if risk_level in {"HIGH", "CRITICAL"}:
+        try:
+            automation_reason = str(
+                result.get("recommended_action")
+                or result.get("diagnosis_report")
+                or f"Automated {risk_level} risk event"
+            )
+            automation_outcome = ensure_customer_confirmation_from_risk_event(
+                vehicle_id=request.vehicle_id,
+                risk_score=int(result.get("risk_score") or 0),
+                risk_level=risk_level,
+                reason=automation_reason,
+                suggested_by="predictive-high-risk-auto",
+                recipient="maintenance.automation@fleet.local",
+                approver_email="risk.automation@fleet.local",
+            )
+            safe_result["customer_confirmation_automation"] = automation_outcome
+        except Exception as automation_error:
+            print(f"⚠️ High-risk customer confirmation automation failed: {automation_error}")
+
     if result.get("customer_script"):
         vehicle_metadata = result.get("vehicle_metadata") or {}
+        contacts = _resolve_vehicle_contacts(request.vehicle_id, vehicle_metadata)
+        pilot_sms_target = contacts.get("owner_phone")
+        pilot_email_target = contacts.get("owner_email")
+
+        use_email_channel = bool(is_email_confirmation_vehicle(request.vehicle_id) and pilot_email_target)
+        use_sms_channel = bool(not use_email_channel and is_sms_pilot_vehicle(request.vehicle_id) and pilot_sms_target)
+
+        notification_channel = "email" if use_email_channel else ("sms" if use_sms_channel else ("voice" if result.get("audio_available") else "sms"))
+        notification_recipient = (
+            pilot_email_target
+            if use_email_channel
+            else (pilot_sms_target if use_sms_channel else (pilot_sms_target or pilot_email_target))
+        )
+
         supabase.table("notifications").insert({
             "vehicle_id": request.vehicle_id,
             "notification_type": "critical" if risk_level == "CRITICAL" else "alert",
             "title": f"Maintenance alert for {request.vehicle_id}",
             "message": result.get("customer_script"),
-            "channel": "voice" if result.get("audio_available") else "sms",
-            "recipient": vehicle_metadata.get("owner_phone") or vehicle_metadata.get("owner_email"),
+            "channel": notification_channel,
+            "recipient": notification_recipient,
         }).execute()
+
+        if use_email_channel:
+            send_email(
+                pilot_email_target,
+                f"Maintenance alert for {request.vehicle_id}",
+                str(result.get("customer_script") or "Vehicle health alert. Please review and confirm service scheduling."),
+            )
+        elif use_sms_channel:
+            send_sms(
+                pilot_sms_target,
+                str(result.get("customer_script") or "Vehicle health alert. Please review and confirm service scheduling."),
+            )
 
 # --- ENDPOINT ---
 @router.post("/run", response_model=AnalyzeResponse)

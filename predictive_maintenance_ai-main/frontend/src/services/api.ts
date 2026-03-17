@@ -1,6 +1,8 @@
 import axios from 'axios';
 import { API_BASE_URL, API_BASE_URL_CANDIDATES } from './config';
 
+const LIVE_DATA_REQUEST_TIMEOUT_MS = 8000;
+
 // ==========================================
 // 1. INTERFACES
 // ==========================================
@@ -89,6 +91,14 @@ export interface SchedulingRecommendation {
     approved_at?: string;
     rejected_at?: string;
     booking_id?: string;
+    customer_confirmation_status?: string;
+    customer_confirmation_method?: string;
+    customer_confirmation_email?: string;
+    customer_confirmation_phone?: string;
+    customer_confirmation_requested_at?: string;
+    customer_confirmation_confirmed_at?: string;
+    customer_confirmation_declined_at?: string;
+    customer_confirmation_reference?: string;
     created_at?: string;
     updated_at?: string;
 }
@@ -111,6 +121,26 @@ export interface SchedulingRecommendationResult {
     recommendation: SchedulingRecommendation;
     alert_sent?: boolean;
     notification?: NotificationItem;
+    sms_confirmation?: {
+        status?: string;
+        provider?: string;
+        provider_message_id?: string;
+        reference?: string;
+        requested_at?: string;
+        expires_at?: string;
+        error?: string;
+        simulated?: boolean;
+    };
+    email_confirmation?: {
+        status?: string;
+        provider?: string;
+        provider_message_id?: string;
+        reference?: string;
+        requested_at?: string;
+        expires_at?: string;
+        error?: string;
+        simulated?: boolean;
+    };
     message?: string;
     booking_id?: string;
     conflict_booking?: Record<string, unknown>;
@@ -233,7 +263,9 @@ export const api = {
         try {
             return await requestWithApiBaseFallback(
                 async (apiBaseUrl) => {
-                    const response = await axios.get(`${apiBaseUrl}/telematics/${vehicleId}`);
+                    const response = await axios.get(`${apiBaseUrl}/telematics/${vehicleId}`, {
+                        timeout: LIVE_DATA_REQUEST_TIMEOUT_MS,
+                    });
                     return response.data as TelematicsData | null;
                 },
                 `Failed to fetch telematics for ${vehicleId}`,
@@ -294,7 +326,9 @@ export const api = {
         try {
             const fleet = await requestWithApiBaseFallback(
                 async (apiBaseUrl) => {
-                    const response = await axios.get(`${apiBaseUrl}/fleet/status`);
+                    const response = await axios.get(`${apiBaseUrl}/fleet/status`, {
+                        timeout: LIVE_DATA_REQUEST_TIMEOUT_MS,
+                    });
                     return response.data as VehicleSummary[];
                 },
                 'Failed to load fleet status',

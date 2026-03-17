@@ -11,14 +11,12 @@ def customer_node(state: AgentState) -> AgentState:
     priority = state.get("priority_level", "Medium")
 
     # ---------------------------------------------------------
-    # 🔄 DYNAMIC PROMPT LOGIC (Based on Priority)
+    # 🔄 DYNAMIC PROMPT LOGIC (confirmation-first for all priorities)
     # ---------------------------------------------------------
     if priority == "Critical":
-        # Case 1: Critical - Inform them about Auto-Booking
-        instruction = "This is a CRITICAL safety alert. Inform them that a service slot is being auto-scheduled immediately to prevent failure."
+        instruction = "This is a CRITICAL safety alert. Ask them to reply YES to confirm service booking or NO to decline."
     else:
-        # Case 2: Normal - Ask for permission
-        instruction = "Advise them to schedule a repair soon. Ask them to reply 'YES' to confirm a booking for tomorrow."
+        instruction = "Advise them to schedule a repair soon. Ask them to reply YES to confirm booking or NO to decline."
 
     # Prompt the AI to write a message
     prompt = f"""
@@ -45,16 +43,7 @@ def customer_node(state: AgentState) -> AgentState:
         # Fallback
         state["customer_script"] = f"Urgent: Your {model} requires service. Please contact us."
 
-    # ---------------------------------------------------------
-    # 🎭 DEMO SIMULATION: USER DECISION
-    # ---------------------------------------------------------
-    if priority == "Critical":
-        print(f"🚨 [Customer] Critical Alert Sent. System assuming Authorization.")
-        state["customer_decision"] = "AUTO_AUTHORIZED"
-    else:
-        # For Demo purposes, we simulate the user saying "YES" (BOOKED).
-        # In a real app, you would wait for an SMS reply here.
-        print(f"📞 [Customer] Message sent. Simulating user reply: 'YES, please book.'")
-        state["customer_decision"] = "BOOKED" 
+    # Customer decision remains pending until explicit YES/NO arrives via confirmation endpoints.
+    state["customer_decision"] = state.get("customer_decision") or "PENDING_CONFIRMATION"
     
     return state

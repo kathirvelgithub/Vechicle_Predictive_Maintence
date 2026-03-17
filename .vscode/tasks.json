@@ -60,6 +60,440 @@
 				"cd /d c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\auth-service && set JAVA_HOME=C:\\Program Files\\Java\\jdk-21 && set PATH=%JAVA_HOME%\\bin;%PATH% && mvnw.cmd -v > auth_mvnw_check.log 2>&1"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "run-v403-risk-booking-alerts",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"predictive_maintenance_ai-main\\.venv\\Scripts\\python scripts\\send_v403_alerts.py"
+			]
+		},
+		{
+			"label": "inspect-notifications-columns",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"predictive_maintenance_ai-main\\.venv\\Scripts\\python -c \"import sys; sys.path.insert(0, r'c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main'); from database import execute_query; rows=execute_query(\\\"SELECT column_name FROM information_schema.columns WHERE table_name='notifications' ORDER BY ordinal_position\\\", fetch=True); print([r['column_name'] for r in rows])\""
+			]
+		},
+		{
+			"label": "run-v403-risk-booking-alerts-retry",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"predictive_maintenance_ai-main\\.venv\\Scripts\\python scripts\\send_v403_alerts.py"
+			]
+		},
+		{
+			"label": "run-v403-alerts-with-file-check",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo SCRIPT_PATH:%CD%\\scripts\\send_v403_alerts.py && findstr /n /c:\"SELECT notification_type, title, message, recipient, channel\" scripts\\send_v403_alerts.py && predictive_maintenance_ai-main\\.venv\\Scripts\\python scripts\\send_v403_alerts.py"
+			]
+		},
+		{
+			"label": "dump-v403-notifications",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"predictive_maintenance_ai-main\\.venv\\Scripts\\python scripts\\dump_v403_notifications.py"
+			]
+		},
+		{
+			"label": "run-v403-alerts-after-fix",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"predictive_maintenance_ai-main\\.venv\\Scripts\\python scripts\\send_v403_alerts.py"
+			]
+		},
+		{
+			"label": "api-health-check-8000",
+			"type": "shell",
+			"command": "curl",
+			"args": [
+				"-s",
+				"-m",
+				"8",
+				"http://localhost:8000/"
+			]
+		},
+		{
+			"label": "smoke-email-test-runtime",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-email-test-runtime-far-future",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-backend-health-check",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"-m",
+				"12",
+				"http://localhost:8000/"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-email-test-runtime-final",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-health-ready-root",
+			"type": "shell",
+			"command": "curl.exe",
+			"args": [
+				"-s",
+				"-m",
+				"12",
+				"http://localhost:8000/health/ready"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-email-test-runtime-clean",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-email-test-runtime-retry",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-reset-bookings-dry-run",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/reset_service_bookings.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-email-env-safely",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.config.settings import EMAIL_CONFIRMATION_ENABLED, EMAIL_CONFIRMATION_VEHICLES, SMTP_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_FROM_EMAIL, SMTP_PASSWORD; print({'email_confirmation_enabled': EMAIL_CONFIRMATION_ENABLED, 'email_confirmation_vehicles': sorted(list(EMAIL_CONFIRMATION_VEHICLES)), 'smtp_enabled': SMTP_ENABLED, 'smtp_host': SMTP_HOST, 'smtp_port': SMTP_PORT, 'smtp_username': SMTP_USERNAME, 'smtp_from_email': SMTP_FROM_EMAIL, 'smtp_password_set': bool(SMTP_PASSWORD), 'smtp_password_length': len(SMTP_PASSWORD or '')})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-email-env-with-dotenv",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; import sys; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.config.settings import EMAIL_CONFIRMATION_ENABLED, EMAIL_CONFIRMATION_VEHICLES, SMTP_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_FROM_EMAIL, SMTP_PASSWORD; print({'email_confirmation_enabled': EMAIL_CONFIRMATION_ENABLED, 'email_confirmation_vehicles': sorted(list(EMAIL_CONFIRMATION_VEHICLES)), 'smtp_enabled': SMTP_ENABLED, 'smtp_host': SMTP_HOST, 'smtp_port': SMTP_PORT, 'smtp_username': SMTP_USERNAME, 'smtp_from_email': SMTP_FROM_EMAIL, 'smtp_password_set': bool(SMTP_PASSWORD), 'smtp_password_length': len(SMTP_PASSWORD or '')})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-customer-emails-in-db",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; import sys; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from database import execute_query; rows = execute_query(\"SELECT vehicle_id, owner_email FROM vehicles WHERE owner_email IS NOT NULL AND owner_email <> '' ORDER BY vehicle_id LIMIT 10\", fetch=True); print(rows)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-customer-emails-in-db-2",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; import sys; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from database import execute_query; rows = execute_query('SELECT vehicle_id, owner_email FROM vehicles WHERE owner_email IS NOT NULL AND owner_email <> \\'\\' ORDER BY vehicle_id LIMIT 10', fetch=True); print(rows)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smtp-live-safe-check",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; import sys; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.services.email_gateway import send_email; result = send_email('kathirveluec@gmail.com', 'SMTP Safety Check', 'This is a one-time SMTP verification test from predictive maintenance backend.'); print({'ok': result.ok, 'provider': result.provider, 'simulated': result.simulated, 'has_message_id': bool(result.message_id), 'error': result.error})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "smoke-api-channel-check",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/smoke_test_email_confirmation.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-customer-email-alert-send",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/verify_customer_email_alert.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diag-email-booking-flow",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/diag_email_booking_flow.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "diag-email-booking-flow-now",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/diag_email_booking_flow.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-booking-self-heal",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/verify_booking_self_heal.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-ollama-profile-call",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.agents.llm_gateway import invoke_with_policy; text, model = invoke_with_policy('Reply with exactly: OLLAMA_OK', profile='customer'); print({'model_used': model, 'response': text[:120]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-direct-ollama-call",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"import os; from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); os.environ['AGENT_MODELS_CUSTOMER']='ollama:gemma3:1b'; import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.agents.llm_gateway import invoke_with_policy; text, model = invoke_with_policy('Say OK_LOCAL only.', profile='customer'); print({'model_used': model, 'response': text[:120]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-ollama-openai-endpoint",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"import json, urllib.request; url='http://127.0.0.1:11434/v1/models'; data=json.loads(urllib.request.urlopen(url, timeout=8).read().decode('utf-8')); print({'model_count': len(data.get('data', [])), 'models': [m.get('id') for m in data.get('data', [])[:10]]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-direct-ollama-invoke-policy",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"import os; from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); os.environ['AGENT_MODELS_CUSTOMER']='ollama:gemma3:1b'; import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.agents.llm_gateway import invoke_with_policy; text, model = invoke_with_policy('Reply exactly with OK_LOCAL', profile='customer'); print({'model_used': model, 'response': text[:120]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-ollama-fallback-script",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/scripts/check_ollama_fallback.py"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-direct-ollama-invoke-policy-fixed",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"import os; from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); os.environ['AGENT_MODELS_CUSTOMER']='ollama:gemma3:1b'; import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.agents.llm_gateway import invoke_with_policy; text, model = invoke_with_policy('Reply exactly with OK_LOCAL', profile='customer'); print({'model_used': model, 'response': text[:120]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-direct-ollama-client-raw",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from app.agents.llm_gateway import _get_client,_invoke_with_timeout; c=_get_client('ollama:gemma3:1b'); out=_invoke_with_timeout(c,'Reply exactly with OK_LOCAL',30); print({'ok':True,'response':str(out)[:120]})"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-postgres-runtime-status",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Write-Host 'PORT_5432_LISTENERS'; Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,OwningProcess,State | Format-Table -AutoSize; Write-Host 'POSTGRES_SERVICES'; Get-Service *postgres* -ErrorAction SilentlyContinue | Select-Object Name,Status,DisplayName | Format-Table -AutoSize; Write-Host 'DOCKER_POSTGRES'; docker ps --format \"{{.Names}} | {{.Status}} | {{.Ports}}\" 2>$null"
+			]
+		},
+		{
+			"label": "check-postgres-runtime-status-2",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Write-Host 'PORT_5432_LISTENERS'; Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction SilentlyContinue | Select-Object LocalAddress,LocalPort,OwningProcess,State | Format-Table -AutoSize; Write-Host 'POSTGRES_SERVICES'; Get-Service *postgres* -ErrorAction SilentlyContinue | Select-Object Name,Status,DisplayName | Format-Table -AutoSize; Write-Host 'DOCKER_PS'; docker ps 2>$null"
+			]
+		},
+		{
+			"label": "start-postgres-container",
+			"type": "shell",
+			"command": "docker",
+			"args": [
+				"compose",
+				"-f",
+				"c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/docker-compose.yml",
+				"up",
+				"-d",
+				"postgres"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-windows-postgres-service",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"Get-Service *postgres* -ErrorAction SilentlyContinue | Select-Object Name,Status,DisplayName | Format-Table -AutoSize"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-local-postgres-status",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$services = Get-Service | Where-Object { $_.Name -match 'postgres|pgsql' -or $_.DisplayName -match 'PostgreSQL' }; Write-Output 'POSTGRES_SERVICES'; if ($services) { $services | Select-Object Name, Status, DisplayName | Format-Table -Auto | Out-String | Write-Output } else { Write-Output 'NONE' }; Write-Output 'PORT_5432'; try { $listeners = Get-NetTCPConnection -LocalPort 5432 -State Listen -ErrorAction Stop; if ($listeners) { $listeners | Select-Object LocalAddress, LocalPort, OwningProcess | Format-Table -Auto | Out-String | Write-Output } else { Write-Output 'No listener on 5432' } } catch { Write-Output 'No listener on 5432' }; Write-Output 'POSTGRES_PROCESSES'; $pg = Get-Process -Name postgres -ErrorAction SilentlyContinue; if ($pg) { $pg | Select-Object Id, ProcessName, Path | Format-Table -Auto | Out-String | Write-Output } else { Write-Output 'No postgres process' }"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "check-postgres-service-and-port-cmd",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo ---SERVICES--- && sc query type= service state= all | findstr /I /C:\"postgres\" /C:\"pgsql\" && echo ---PORT5432--- && netstat -ano | findstr :5432"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "start-local-postgres-17",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo ---STATUS_BEFORE--- && sc query postgresql-x64-17 && echo ---START_ATTEMPT--- && sc start postgresql-x64-17 && timeout /t 2 > nul && echo ---STATUS_AFTER--- && sc query postgresql-x64-17 && echo ---PORT5432_AFTER--- && netstat -ano | findstr :5432"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-postgres-service-details",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo ---SERVICE_CONFIG--- && sc qc postgresql-x64-17 && echo ---SERVICE_STATUS--- && sc query postgresql-x64-17 && echo ---BINARY_CHECK--- && for %I in (\"C:\\Program Files\\PostgreSQL\\17\\bin\\pg_ctl.exe\") do @echo %~fI && if exist \"C:\\Program Files\\PostgreSQL\\17\\bin\\pg_ctl.exe\" (\"C:\\Program Files\\PostgreSQL\\17\\bin\\pg_ctl.exe\" --version) else (echo pg_ctl_not_found)"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "inspect-postgres-log-files",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"echo ---DATA_DIR_EXISTS--- && if exist \"C:\\Program Files\\PostgreSQL\\17\\data\" (echo yes) else (echo no) && echo ---DATA_DIR_CONTENT--- && dir /b \"C:\\Program Files\\PostgreSQL\\17\\data\" && echo ---LOG_DIR_CONTENT--- && dir /b \"C:\\Program Files\\PostgreSQL\\17\\data\\log\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "generate-postgres-diagnostic-report",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-Command",
+				"$report=[ordered]@{}; $report.generatedAt=(Get-Date).ToString('s'); $report.serviceQuery=(sc.exe query postgresql-x64-17 | Out-String); $report.serviceConfig=(sc.exe qc postgresql-x64-17 | Out-String); $report.port5432=((netstat -ano | Select-String ':5432' | ForEach-Object {$_.Line}) -join \"`n\"); $logDir='C:\\Program Files\\PostgreSQL\\17\\data\\log'; $report.logDir=$logDir; $report.logDirExists=Test-Path $logDir; if ($report.logDirExists) { $files=Get-ChildItem $logDir -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 5 Name,LastWriteTime,Length; $report.logFiles=$files; if ($files.Count -gt 0) { $latest=Join-Path $logDir $files[0].Name; $report.latestLog=$latest; $report.latestLogTail=(Get-Content $latest -Tail 120 -ErrorAction SilentlyContinue); } }; $out='c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\postgres_diag_report.json'; $report | ConvertTo-Json -Depth 8 | Set-Content $out -Encoding UTF8; Write-Output \"REPORT_PATH=$out\""
+			],
+			"isBackground": false
+		},
+		{
+			"label": "capture-postgres-diagnostics-to-file",
+			"type": "shell",
+			"command": "cmd",
+			"args": [
+				"/c",
+				"(echo ====SC_QUERY==== & sc query postgresql-x64-17 & echo ====SC_QC==== & sc qc postgresql-x64-17 & echo ====NETSTAT_5432==== & netstat -ano | findstr :5432 & echo ====DATA_DIR==== & dir /b \"C:\\Program Files\\PostgreSQL\\17\\data\" & echo ====LOG_DIR==== & dir /b \"C:\\Program Files\\PostgreSQL\\17\\data\\log\") > \"c:\\kathir\\Final_Year_Project\\predictive_maintenance_ai-main\\postgres_diag_report.txt\" 2>&1 & echo DONE"
+			],
+			"isBackground": false
+		},
+		{
+			"label": "verify-app-db-connectivity",
+			"type": "shell",
+			"command": "c:/kathir/Final_Year_Project/.venv/Scripts/python.exe",
+			"args": [
+				"-c",
+				"from dotenv import load_dotenv; load_dotenv(r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main/.env', override=True); import sys; sys.path.insert(0, r'c:/kathir/Final_Year_Project/predictive_maintenance_ai-main'); from database import execute_query; rows=execute_query('SELECT current_database() AS db, current_user AS user_name, now() AS server_time', fetch=True); print(rows)"
+			],
+			"isBackground": false
 		}
 	]
 }

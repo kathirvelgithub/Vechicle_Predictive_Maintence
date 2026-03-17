@@ -394,15 +394,18 @@ CREATE INDEX idx_ueba_vehicle_id ON ueba_logs(vehicle_id);
 -- ============================================
 
 -- Insert sample vehicles
-INSERT INTO vehicles (vehicle_id, vin, make, model, year, vehicle_type, owner_name, owner_email, status) VALUES
-('V-301', 'MA1234567890ABCDE', 'Mahindra', 'XUV 3XO', 2024, 'suv', 'Rajesh Kumar', 'rajesh@example.com', 'active'),
-('V-302', 'MA2234567890ABCDE', 'Mahindra', 'Thar', 2024, 'suv', 'Priya Singh', 'priya@example.com', 'active'),
-('V-303', 'MA3234567890ABCDE', 'Mahindra', 'Scorpio N', 2024, 'suv', 'Amit Patel', 'amit@example.com', 'active'),
-('V-304', 'MA4234567890ABCDE', 'Mahindra', 'XUV700', 2024, 'suv', 'Sneha Reddy', 'sneha@example.com', 'active'),
-('V-401', 'HO1234567890ABCDE', 'Honda', 'City', 2024, 'sedan', 'Vikram Mehta', 'vikram@example.com', 'active'),
-('V-402', 'HO2234567890ABCDE', 'Honda', 'Elevate', 2024, 'suv', 'Anita Sharma', 'anita@example.com', 'active'),
-('V-403', 'HO3234567890ABCDE', 'Honda', 'City Hybrid eHEV', 2024, 'sedan', 'Ravi Krishnan', 'ravi@example.com', 'active')
+INSERT INTO vehicles (vehicle_id, vin, make, model, year, vehicle_type, owner_name, owner_email, owner_phone, status) VALUES
+('V-301', 'MA1234567890ABCDE', 'Mahindra', 'XUV 3XO', 2024, 'suv', 'Rajesh Kumar', 'rajesh@example.com', '+919840000301', 'active'),
+('V-302', 'MA2234567890ABCDE', 'Mahindra', 'Thar', 2024, 'suv', 'Priya Singh', 'priya@example.com', '+919840000302', 'active'),
+('V-303', 'MA3234567890ABCDE', 'Mahindra', 'Scorpio N', 2024, 'suv', 'Amit Patel', 'amit@example.com', '+919840000303', 'active'),
+('V-304', 'MA4234567890ABCDE', 'Mahindra', 'XUV700', 2024, 'suv', 'Sneha Reddy', 'sneha@example.com', '+919840000304', 'active'),
+('V-401', 'HO1234567890ABCDE', 'Honda', 'City', 2024, 'sedan', 'Vikram Mehta', 'vikram@example.com', '+919840000401', 'active'),
+('V-402', 'HO2234567890ABCDE', 'Honda', 'Elevate', 2024, 'suv', 'Anita Sharma', 'anita@example.com', '+919840000402', 'active'),
+('V-403', 'HO3234567890ABCDE', 'Honda', 'City Hybrid eHEV', 2024, 'sedan', 'Ravi Krishnan', 'ravi@example.com', '+919840000403', 'active')
 ON CONFLICT (vehicle_id) DO NOTHING;
+
+UPDATE vehicles SET owner_phone = COALESCE(owner_phone, '+919840000402') WHERE vehicle_id = 'V-402';
+UPDATE vehicles SET owner_phone = COALESCE(owner_phone, '+919840000403') WHERE vehicle_id = 'V-403';
 
 -- ============================================
 -- TRIGGERS FOR AUTO-UPDATE

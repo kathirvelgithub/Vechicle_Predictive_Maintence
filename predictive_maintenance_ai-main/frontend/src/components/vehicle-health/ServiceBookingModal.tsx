@@ -37,6 +37,20 @@ export function ServiceBookingModal({ vehicleId, onClose, onSuccess }: ServiceBo
 
   const recommendation = result?.recommendation;
   const canMakeDecision = recommendation?.status === 'recommended';
+  const confirmationMethod = String(
+    recommendation?.customer_confirmation_method ||
+      (result?.email_confirmation ? 'email' : result?.sms_confirmation ? 'sms' : ''),
+  )
+    .trim()
+    .toLowerCase();
+  const confirmationChannel =
+    confirmationMethod === 'email' ? 'email' : confirmationMethod === 'sms' ? 'SMS' : 'customer';
+  const confirmationAction =
+    confirmationMethod === 'email'
+      ? 'clicks YES in the confirmation email'
+      : confirmationMethod === 'sms'
+      ? 'replies YES by SMS'
+      : 'confirms the request';
 
   const suggestedBy = useMemo(() => {
     return user?.email || 'vehicle-health-ui';
@@ -194,6 +208,16 @@ export function ServiceBookingModal({ vehicleId, onClose, onSuccess }: ServiceBo
                   {result.alternative_start && (
                     <p className="mt-1 text-xs">Alternative: {formatSlot(result.alternative_start)}</p>
                   )}
+                </div>
+              ) : result?.status === 'pending_customer_confirmation' ? (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-blue-800">
+                  <div className="flex items-center gap-2 text-sm font-semibold">
+                    <Clock3 className="h-4 w-4" />
+                    Waiting for customer {confirmationChannel} confirmation
+                  </div>
+                  <p className="mt-1 text-xs">
+                    Booking will be created only after customer {confirmationAction}.
+                  </p>
                 </div>
               ) : (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-700">

@@ -1,0 +1,249 @@
+{
+  "timestamp_utc": "2026-03-16T16:14:30.279083+00:00",
+  "api_base": "http://localhost:8000",
+  "api_prefix": "/api",
+  "steps": [
+    {
+      "step": "backend_root",
+      "status_code": 200,
+      "ok": true,
+      "body": "{\"status\":\"AI System Online\",\"version\":\"1.0.0\",\"ready\":true}",
+      "attempt": 1
+    },
+    {
+      "step": "ready_check",
+      "method": "GET",
+      "path": "/health/ready",
+      "status_code": 404,
+      "ok": false,
+      "response": {
+        "detail": "Not Found"
+      }
+    },
+    {
+      "step": "list_pending",
+      "method": "GET",
+      "path": "/scheduling/recommendations/pending?limit=100",
+      "status_code": 200,
+      "ok": true,
+      "response": {
+        "recommendations": [
+          {
+            "recommendation_id": "RCM-834E0A97",
+            "vehicle_id": "V-402",
+            "recommended_start": "2026-07-21T09:00:00",
+            "estimated_duration_hours": 2.0,
+            "service_type": "repair",
+            "priority": "high",
+            "risk_score": 88,
+            "reason": "smoke-test email confirmation",
+            "status": "pending_customer_confirmation",
+            "recipient": "maintenance.manager@fleet.local",
+            "suggested_by": "smoke-test",
+            "customer_confirmation_status": "pending",
+            "customer_confirmation_method": "sms",
+            "customer_confirmation_email": null,
+            "customer_confirmation_phone": "+919500882090",
+            "customer_confirmation_requested_at": "2026-03-16T21:33:30.909448",
+            "customer_confirmation_confirmed_at": null,
+            "customer_confirmation_declined_at": null,
+            "customer_confirmation_reference": "RCM-834E0A97-4D66C1",
+            "created_at": "2026-03-16T21:33:28.450432",
+            "updated_at": "2026-03-16T21:33:30.909448"
+          },
+          {
+            "recommendation_id": "RCM-CF97DFFE",
+            "vehicle_id": "V-402",
+            "recommended_start": "2026-07-20T14:00:00",
+            "estimated_duration_hours": 2.0,
+            "service_type": "repair",
+            "priority": "high",
+            "risk_score": 88,
+            "reason": "smoke-test email confirmation",
+            "status": "pending_customer_confirmation",
+            "recipient": "maintenance.manager@fleet.local",
+            "suggested_by": "smoke-test",
+            "customer_confirmation_status": "pending",
+            "customer_confirmation_method": "sms",
+            "customer_confirmation_email": null,
+            "customer_confirmation_phone": "+919500882090",
+            "customer_confirmation_requested_at": "2026-03-16T21:27:42.292006",
+            "customer_confirmation_confirmed_at": null,
+            "customer_confirmation_declined_at": null,
+            "customer_confirmation_reference": "RCM-CF97DFFE-0E19D7",
+            "created_at": "2026-03-16T21:27:39.597556",
+            "updated_at": "2026-03-16T21:27:42.292006"
+          },
+          {
+            "recommendation_id": "RCM-051A8146",
+            "vehicle_id": "V-302",
+            "recommended_start": "2026-08-18T09:00:00",
+            "estimated_duration_hours": 2.0,
+            "service_type": "repair",
+            "priority": "high",
+            "risk_score": 0,
+            "reason": "Awaiting approval",
+            "status": "recommended",
+            "recipient": "maintenance.manager@fleet.local",
+            "suggested_by": "admin@gmail.com",
+            "customer_confirmation_status": null,
+            "customer_confirmation_method": null,
+            "customer_confirmation_email": null,
+            "customer_confirmation_phone": null,
+            "customer_confirmation_requested_at": null,
+            "customer_confirmation_confirmed_at": null,
+            "customer_confirmation_declined_at": null,
+            "customer_confirmation_reference": null,
+            "created_at": "2026-03-16T19:53:35.366895",
+            "updated_at": "2026-03-16T19:53:35.366895"
+          },
+          {
+            "recommendation_id": "RCM-83BBD609",
+            "vehicle_id": "V-304",
+            "recommended_start": "2026-08-01T09:00:00",
+            "estimated_duration_hours": 2.0,
+            "service_type": "repair",
+            "priority": "high",
+            "risk_score": 0,
+            "reason": "coolent system",
+            "status": "recommended",
+            "recipient": "maintenance.manager@fleet.local",
+            "suggested_by": "admin@gmail.com",
+            "customer_confirmation_status": null,
+            "customer_confirmation_method": null,
+            "customer_confirmation_email": null,
+            "customer_confirmation_phone": null,
+            "customer_confirmation_requested_at": null,
+            "customer_confirmation_confirmed_at": null,
+            "customer_confirmation_declined_at": null,
+            "customer_confirmation_reference": null,
+            "created_at": "2026-03-16T12:01:48.423060",
+            "updated_at": "2026-03-16T12:01:48.423060"
+          }
+        ]
+      }
+    },
+    {
+      "step": "create_recommendation_V-402",
+      "method": "POST",
+      "path": "/scheduling/recommendations",
+      "status_code": 200,
+      "ok": true,
+      "response": {
+        "status": "recommended",
+        "recommendation": {
+          "recommendation_id": "RCM-16B0AEAE",
+          "vehicle_id": "V-402",
+          "recommended_start": "2026-07-21T11:00:00",
+          "estimated_duration_hours": 2.0,
+          "service_type": "repair",
+          "priority": "high",
+          "risk_score": 88,
+          "reason": "smoke-test email confirmation",
+          "status": "recommended",
+          "recipient": "maintenance.manager@fleet.local",
+          "suggested_by": "smoke-test",
+          "customer_confirmation_status": null,
+          "customer_confirmation_method": null,
+          "customer_confirmation_email": null,
+          "customer_confirmation_phone": null,
+          "customer_confirmation_requested_at": null,
+          "customer_confirmation_confirmed_at": null,
+          "customer_confirmation_declined_at": null,
+          "customer_confirmation_reference": null,
+          "created_at": "2026-03-16T21:44:45.335372",
+          "updated_at": "2026-03-16T21:44:45.335372"
+        },
+        "alert_sent": true,
+        "notification": {
+          "id": "e80b35d8-b5ff-4f89-a0bc-bbb12de3133e",
+          "vehicle_id": "V-402",
+          "notification_type": "approval_required",
+          "title": "Approval required for V-402",
+          "message": "Recommendation RCM-16B0AEAE needs approval for 2026-07-21T11:00:00 (2.0h).",
+          "sent_at": "2026-03-16T21:44:45.385312",
+          "channel": "push",
+          "recipient": "maintenance.manager@fleet.local",
+          "read": false,
+          "acknowledged": false
+        }
+      }
+    },
+    {
+      "step": "approve_recommendation",
+      "recommendation_id": "RCM-16B0AEAE",
+      "method": "POST",
+      "path": "/scheduling/recommendations/RCM-16B0AEAE/approve",
+      "status_code": 200,
+      "ok": true,
+      "response": {
+        "status": "pending_customer_confirmation",
+        "recommendation": {
+          "recommendation_id": "RCM-16B0AEAE",
+          "vehicle_id": "V-402",
+          "recommended_start": "2026-07-21T11:00:00",
+          "estimated_duration_hours": 2.0,
+          "service_type": "repair",
+          "priority": "high",
+          "risk_score": 88,
+          "reason": "smoke-test email confirmation",
+          "status": "pending_customer_confirmation",
+          "recipient": "maintenance.manager@fleet.local",
+          "suggested_by": "smoke-test",
+          "approver_email": "qa.smoke@fleet.local",
+          "approved_at": "2026-03-16T21:44:47.765324",
+          "booking_id": null,
+          "customer_confirmation_status": "pending",
+          "customer_confirmation_method": "sms",
+          "customer_confirmation_email": null,
+          "customer_confirmation_phone": "+919500882090",
+          "customer_confirmation_requested_at": "2026-03-16T21:44:47.765324",
+          "customer_confirmation_confirmed_at": null,
+          "customer_confirmation_declined_at": null,
+          "customer_confirmation_reference": "RCM-16B0AEAE-C6617C",
+          "created_at": "2026-03-16T21:44:45.335372",
+          "updated_at": "2026-03-16T21:44:47.765324"
+        },
+        "notification": {
+          "id": "2f599f00-e76d-4ffc-af03-59e7e3f55a2d",
+          "vehicle_id": "V-402",
+          "notification_type": "booking_confirmation_requested",
+          "title": "Customer confirmation needed for V-402",
+          "message": "Approval completed for RCM-16B0AEAE. Waiting for customer confirmation over SMS. Reference: RCM-16B0AEAE-C6617C.",
+          "sent_at": "2026-03-16T21:44:47.809955",
+          "channel": "sms",
+          "recipient": "+919500882090",
+          "read": false,
+          "acknowledged": false
+        },
+        "sms_confirmation": {
+          "status": "queued",
+          "provider": "mock",
+          "provider_message_id": "mock-73a0d0d9e41f",
+          "reference": "RCM-16B0AEAE-C6617C",
+          "requested_at": "2026-03-16T21:44:47.606153",
+          "expires_at": "2026-03-17T16:14:47.567705",
+          "error": null,
+          "simulated": true
+        },
+        "message": "Recommendation approved. Waiting for customer SMS confirmation."
+      }
+    },
+    {
+      "step": "email_endpoint_probe",
+      "method": "POST",
+      "path": "/scheduling/customer-confirmation/email",
+      "status_code": 404,
+      "ok": false,
+      "response": {
+        "detail": "Recommendation not found"
+      }
+    }
+  ],
+  "summary": {
+    "recommendation_id": "RCM-16B0AEAE",
+    "approval_status": "pending_customer_confirmation",
+    "confirmation_method": "sms",
+    "result": "pass"
+  }
+}

@@ -34,8 +34,8 @@ An end-to-end **AI-powered predictive maintenance system** for vehicle fleet man
 │  (Wokwi/HW) │            │ (iot_listener) │         │  (PostgreSQL) │
 └──────────────┘            └──────────────┘          └───────┬───────┘
                                                               │
-┌──────────────┐   HTTP POST  ┌──────────────┐               │
-│    Fleet     │─────────────▶│   FastAPI     │◄──────────────┘
+┌──────────────┐   HTTP POST  ┌──────────────┐                │
+│    Fleet     │────────────▶│   FastAPI     │◄──────────────┘
 │  Simulator   │              │  Backend:8000 │
 └──────────────┘              └──────┬───────┘
                                      │  master_agent.invoke()

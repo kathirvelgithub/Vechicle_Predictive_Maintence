@@ -62,6 +62,7 @@ const getVehicleImage = (model: unknown) => {
 const STREAM_CONNECTED_POLL_MS = 15000;
 const STREAM_FALLBACK_POLL_MS = 5000;
 const STREAM_STALE_AFTER_MS = 7000;
+const FLEET_LOAD_TIMEOUT_MS = 9000;
 
 const normalizeVehicleId = (value: unknown): string => {
   if (typeof value !== 'string') {
@@ -213,7 +214,12 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
 
   const loadFleet = useCallback(async () => {
     try {
-      const result = await api.getFleetStatus();
+      const result = await Promise.race<VehicleSummary[]>([
+        api.getFleetStatus(),
+        new Promise<VehicleSummary[]>((resolve) => {
+          window.setTimeout(() => resolve([]), FLEET_LOAD_TIMEOUT_MS);
+        }),
+      ]);
       setData(result.map(normalizeVehicleSummary));
     } catch (err) {
       console.error("Failed to load fleet", err);

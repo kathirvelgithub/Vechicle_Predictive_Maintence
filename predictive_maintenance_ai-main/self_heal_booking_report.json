@@ -1,0 +1,61 @@
+{
+  "timestamp_utc": "2026-03-16T17:33:51.354799+00:00",
+  "target": {
+    "recommendation_id": "RCM-C918CE57",
+    "vehicle_id": "V-303",
+    "booking_id": "BK-DBF9120C",
+    "email_address": "codedeveloper2004@gmail.com",
+    "confirmation_code": "148226"
+  },
+  "before": {
+    "booking_exists": true
+  },
+  "action": {
+    "deleted_booking_id": "BK-DBF9120C",
+    "booking_exists_after_delete": false,
+    "confirmation_response": {
+      "status": "booked",
+      "booking_id": "BK-DBF9120C",
+      "recommendation": {
+        "recommendation_id": "RCM-C918CE57",
+        "vehicle_id": "V-303",
+        "recommended_start": "2026-03-17T09:00:00",
+        "estimated_duration_hours": 2.0,
+        "service_type": "repair",
+        "priority": "high",
+        "risk_score": 45,
+        "reason": "Check coolant level and condition, and inspect radiator and hoses for leaks to address potential overheating causes.",
+        "status": "booked",
+        "recipient": "maintenance.automation@fleet.local",
+        "suggested_by": "predictive-high-risk-auto",
+        "approver_email": "risk.automation@fleet.local",
+        "approved_at": "2026-03-16T23:00:50.910751",
+        "booking_id": "BK-DBF9120C",
+        "customer_confirmation_status": "confirmed",
+        "customer_confirmation_method": "email",
+        "customer_confirmation_email": "codedeveloper2004@gmail.com",
+        "customer_confirmation_phone": null,
+        "customer_confirmation_requested_at": "2026-03-16T23:00:50.910751",
+        "customer_confirmation_confirmed_at": "2026-03-16T23:01:28.021339",
+        "customer_confirmation_declined_at": null,
+        "customer_confirmation_reference": "RCM-C918CE57-DA20F2",
+        "created_at": "2026-03-16T23:00:45.194154",
+        "updated_at": "2026-03-16T23:03:54.605663"
+      },
+      "message": "Booking already confirmed. Missing booking row was recreated."
+    }
+  },
+  "after": {
+    "booking_lookup_id": "BK-DBF9120C",
+    "booking_exists": true,
+    "recommendation": {
+      "recommendation_id": "RCM-C918CE57",
+      "status": "booked",
+      "booking_id": "BK-DBF9120C",
+      "customer_confirmation_status": "confirmed",
+      "customer_confirmation_method": "email",
+      "updated_at": "2026-03-16 23:03:54.605663"
+    }
+  },
+  "result": "pass"
+}

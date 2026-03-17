@@ -1,0 +1,130 @@
+====SC_QUERY==== 
+
+SERVICE_NAME: postgresql-x64-17 
+        TYPE               : 10  WIN32_OWN_PROCESS  
+        STATE              : 4  RUNNING 
+                                (STOPPABLE, PAUSABLE, ACCEPTS_SHUTDOWN)
+        WIN32_EXIT_CODE    : 0  (0x0)
+        SERVICE_EXIT_CODE  : 0  (0x0)
+        CHECKPOINT         : 0x0
+        WAIT_HINT          : 0x0
+====SC_QC==== 
+[SC] QueryServiceConfig SUCCESS
+
+SERVICE_NAME: postgresql-x64-17
+        TYPE               : 10  WIN32_OWN_PROCESS 
+        START_TYPE         : 2   AUTO_START
+        ERROR_CONTROL      : 1   NORMAL
+        BINARY_PATH_NAME   : "C:\Program Files\PostgreSQL\17\bin\pg_ctl.exe" runservice -N "postgresql-x64-17" -D "C:\Program Files\PostgreSQL\17\data" -w
+        LOAD_ORDER_GROUP   : 
+        TAG                : 0
+        DISPLAY_NAME       : postgresql-x64-17 - PostgreSQL Server 17
+        DEPENDENCIES       : RPCSS
+        SERVICE_START_NAME : NT AUTHORITY\NetworkService
+====NETSTAT_5432==== 
+  TCP    0.0.0.0:5432           0.0.0.0:0              LISTENING       25540
+  TCP    [::]:5432              [::]:0                 LISTENING       25540
+  TCP    [::1]:5432             [::1]:56520            ESTABLISHED     25540
+  TCP    [::1]:56520            [::1]:5432             ESTABLISHED     16788
+====DATA_DIR==== 
+base
+current_logfiles
+global
+log
+pg_commit_ts
+pg_dynshmem
+pg_hba.conf
+pg_ident.conf
+pg_logical
+pg_multixact
+pg_notify
+pg_replslot
+pg_serial
+pg_snapshots
+pg_stat
+pg_stat_tmp
+pg_subtrans
+pg_tblspc
+pg_twophase
+PG_VERSION
+pg_wal
+pg_xact
+postgresql.auto.conf
+postgresql.conf
+postmaster.opts
+postmaster.pid
+====LOG_DIR==== 
+postgresql-2025-10-19_192125.log
+postgresql-2025-10-20_000000.log
+postgresql-2025-10-24_000000.log
+postgresql-2025-10-24_203141.log
+postgresql-2025-10-24_203245.log
+postgresql-2025-10-25_000000.log
+postgresql-2025-10-26_000000.log
+postgresql-2025-10-27_000000.log
+postgresql-2025-10-30_000000.log
+postgresql-2025-10-31_000000.log
+postgresql-2025-11-01_000000.log
+postgresql-2025-11-10_000000.log
+postgresql-2025-11-11_195850.log
+postgresql-2025-11-11_200212.log
+postgresql-2025-11-12_000000.log
+postgresql-2025-11-14_223817.log
+postgresql-2025-11-14_224135.log
+postgresql-2025-11-15_000000.log
+postgresql-2025-11-16_000000.log
+postgresql-2025-11-24_185515.log
+postgresql-2025-11-24_232627.log
+postgresql-2025-11-25_000000.log
+postgresql-2025-11-26_000000.log
+postgresql-2025-11-28_000000.log
+postgresql-2025-12-02_000000.log
+postgresql-2025-12-05_000000.log
+postgresql-2025-12-09_000000.log
+postgresql-2025-12-10_161020.log
+postgresql-2025-12-10_161329.log
+postgresql-2025-12-11_000000.log
+postgresql-2025-12-12_000000.log
+postgresql-2025-12-13_000000.log
+postgresql-2025-12-14_000000.log
+postgresql-2025-12-16_000000.log
+postgresql-2025-12-19_000000.log
+postgresql-2025-12-21_000000.log
+postgresql-2025-12-23_000000.log
+postgresql-2025-12-30_000000.log
+postgresql-2025-12-31_000000.log
+postgresql-2026-01-02_000000.log
+postgresql-2026-01-10_000000.log
+postgresql-2026-01-12_000000.log
+postgresql-2026-01-14_201220.log
+postgresql-2026-01-14_201452.log
+postgresql-2026-01-15_000000.log
+postgresql-2026-01-17_000000.log
+postgresql-2026-01-19_000000.log
+postgresql-2026-01-23_000000.log
+postgresql-2026-01-28_000000.log
+postgresql-2026-01-29_000000.log
+postgresql-2026-01-31_185619.log
+postgresql-2026-02-01_000000.log
+postgresql-2026-02-03_000000.log
+postgresql-2026-02-04_000000.log
+postgresql-2026-02-05_000000.log
+postgresql-2026-02-06_000000.log
+postgresql-2026-02-06_135830.log
+postgresql-2026-02-07_000000.log
+postgresql-2026-02-13_000000.log
+postgresql-2026-02-13_151622.log
+postgresql-2026-02-13_151745.log
+postgresql-2026-02-14_000000.log
+postgresql-2026-02-18_000000.log
+postgresql-2026-02-23_000000.log
+postgresql-2026-02-26_000000.log
+postgresql-2026-02-27_215840.log
+postgresql-2026-02-27_220127.log
+postgresql-2026-02-28_000000.log
+postgresql-2026-03-01_000000.log
+postgresql-2026-03-07_000000.log
+postgresql-2026-03-12_091043.log
+postgresql-2026-03-13_000000.log
+postgresql-2026-03-16_000000.log
+postgresql-2026-03-16_234951.log
