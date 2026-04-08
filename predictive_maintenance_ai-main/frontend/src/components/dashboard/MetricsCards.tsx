@@ -1,47 +1,90 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { TrendingUp, TrendingDown, AlertTriangle, Calendar, Activity } from 'lucide-react';
-
-
-const metrics = [
-  {
-    title: 'Vehicle Uptime',
-    value: '98.5%',
-    change: '+2.3%',
-    trend: 'up',
-    icon: Activity,
-    color: 'text-green-600',
-    bgColor: 'bg-green-100',
-  },
-  {
-    title: 'Predicted Failures Detected',
-    value: '145',
-    change: 'Today',
-    trend: 'neutral',
-    icon: AlertTriangle,
-    color: 'text-amber-600',
-    bgColor: 'bg-amber-100',
-  },
-  {
-    title: 'Autonomously Scheduled',
-    value: '85%',
-    change: 'of bookings',
-    trend: 'up',
-    icon: Calendar,
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-100',
-  },
-  {
-    title: 'Open RCA Investigations',
-    value: '12',
-    change: '3 new this week',
-    trend: 'neutral',
-    icon: AlertTriangle,
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-100',
-  },
-];
+import { api, ServiceBooking, VehicleSummary } from '../../services/api';
 
 export function MetricsCards() {
+  const [fleet, setFleet] = useState<VehicleSummary[]>([]);
+  const [bookings, setBookings] = useState<ServiceBooking[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      const [fleetRows, bookingRows] = await Promise.all([
+        api.getFleetStatus(),
+        api.getServiceBookings({ limit: 1000 }),
+      ]);
+
+      if (mounted) {
+        setFleet(fleetRows);
+        setBookings(bookingRows);
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 30000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const metrics = useMemo(() => {
+    const totalVehicles = fleet.length;
+    const criticalVehicles = fleet.filter((vehicle) => vehicle.probability >= 80).length;
+    const warningVehicles = fleet.filter((vehicle) => vehicle.probability >= 50 && vehicle.probability < 80).length;
+    const uptime = totalVehicles > 0
+      ? Math.max(0, ((totalVehicles - criticalVehicles) / totalVehicles) * 100)
+      : 100;
+    const confirmedBookings = bookings.filter(
+      (booking) => String(booking.status || '').toLowerCase() === 'confirmed',
+    ).length;
+    const autoScheduledRatio = bookings.length > 0 ? (confirmedBookings / bookings.length) * 100 : 0;
+
+    return [
+      {
+        title: 'Vehicle Uptime',
+        value: `${uptime.toFixed(1)}%`,
+        change: `${totalVehicles} tracked vehicles`,
+        trend: uptime >= 95 ? 'up' : 'down',
+        icon: Activity,
+        color: 'text-green-600',
+        bgColor: 'bg-green-100',
+      },
+      {
+        title: 'Predicted Failures Detected',
+        value: String(criticalVehicles),
+        change: `${warningVehicles} warning vehicles`,
+        trend: criticalVehicles > 0 ? 'down' : 'up',
+        icon: AlertTriangle,
+        color: 'text-amber-600',
+        bgColor: 'bg-amber-100',
+      },
+      {
+        title: 'Autonomously Scheduled',
+        value: `${Math.round(autoScheduledRatio)}%`,
+        change: `${bookings.length} bookings`,
+        trend: autoScheduledRatio >= 70 ? 'up' : 'neutral',
+        icon: Calendar,
+        color: 'text-blue-600',
+        bgColor: 'bg-blue-100',
+      },
+      {
+        title: 'Open RCA Investigations',
+        value: String(criticalVehicles + warningVehicles),
+        change: 'Critical + warning pool',
+        trend: criticalVehicles > 0 ? 'down' : 'neutral',
+        icon: AlertTriangle,
+        color: 'text-purple-600',
+        bgColor: 'bg-purple-100',
+      },
+    ];
+  }, [bookings, fleet]);
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       {metrics.map((metric) => {

@@ -253,7 +253,7 @@ export function SchedulingApprovalInbox({
   }, [executeDecision, notesByRecommendation, processingId, recommendations]);
 
   return (
-    <Card>
+    <Card className="border-slate-200 shadow-sm">
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -262,7 +262,7 @@ export function SchedulingApprovalInbox({
               Approval Inbox
             </CardTitle>
             <p className="mt-1 text-sm text-slate-600">
-              Review alerts and approve recommended slots before booking is finalized.
+              Triage AI suggestions, approve customer-safe slots, and maintain bay throughput.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => void loadPendingRecommendations()}>
@@ -272,6 +272,15 @@ export function SchedulingApprovalInbox({
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-800">
+            Pending {recommendations.length}
+          </Badge>
+          <Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">
+            Approver {approverEmail || 'Not Set'}
+          </Badge>
+        </div>
+
         <div className="grid grid-cols-1 gap-2 md:grid-cols-[240px_1fr] md:items-center">
           <label className="text-sm font-medium text-slate-700">Approver identity</label>
           <Input

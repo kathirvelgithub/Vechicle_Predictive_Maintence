@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 // Removed existing Progress import as it is replaced by Stepper
 // import { Progress } from '../ui/progress'; 
 import { ArrowLeft, ArrowRight, Check, Loader2, AlertCircle } from 'lucide-react';
+import { authApi } from '../../services/authApi';
 
 interface RegisterProps {
   onRegister: (token: string) => void;
@@ -69,27 +70,19 @@ export function Register({ onRegister, onSwitchToLogin }: RegisterProps) {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-           fullName: formData.fullName,
-           email: formData.email,
-           password: formData.password,
-           role: formData.role, 
-           location: formData.location,
-           plant: formData.plant
-        }),
+      await authApi.register({
+        fullName: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        role: formData.role,
+        location: formData.location,
+        plant: formData.plant,
       });
 
-      if (response.ok) {
-        alert("Registration successful! Please sign in with your new account.");
-        onSwitchToLogin(); 
-      } else {
-        setError("Registration failed. Email might exist.");
-      }
+      alert("Registration successful! Please sign in with your new account.");
+      onSwitchToLogin();
     } catch (err) {
-      setError("Network error. Is Spring Boot running?");
+      setError(err instanceof Error ? err.message : 'Network error. Is auth service running?');
     } finally {
       setLoading(false);
     }

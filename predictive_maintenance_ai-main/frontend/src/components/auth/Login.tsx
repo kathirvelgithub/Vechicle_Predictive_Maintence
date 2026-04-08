@@ -6,6 +6,7 @@ import { Checkbox } from '../ui/checkbox';
 import { Separator } from '../ui/separator';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google'; // Import Google SDK
+import { authApi } from '../../services/authApi';
 
 interface LoginProps {
   onLogin: (token: string) => void;
@@ -27,21 +28,10 @@ export function Login({ onLogin, onSwitchToRegister }: LoginProps) {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8080/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        onLogin(data.token); 
-      } else {
-        setError('Invalid email or password');
-      }
+      const data = await authApi.login(email, password);
+      onLogin(data.token);
     } catch (err) {
-      setError('Server error. Is the backend running?');
+      setError(err instanceof Error ? err.message : 'Server error. Is auth service running?');
     } finally {
       setLoading(false);
     }
@@ -53,23 +43,10 @@ export function Login({ onLogin, onSwitchToRegister }: LoginProps) {
     setError('');
     
     try {
-      // Send the Google Token to Spring Boot
-      const res = await fetch('http://localhost:8080/api/auth/google', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: credentialResponse.credential }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        // Receive YOUR App's JWT and Log In
-        onLogin(data.token);
-      } else {
-        setError("Google authentication failed on server");
-      }
+      const data = await authApi.googleLogin(String(credentialResponse?.credential || ''));
+      onLogin(data.token);
     } catch (err) {
-      setError("Network Error connecting to Google Auth endpoint");
+      setError(err instanceof Error ? err.message : 'Network error connecting to Google auth endpoint');
     } finally {
       setLoading(false);
     }

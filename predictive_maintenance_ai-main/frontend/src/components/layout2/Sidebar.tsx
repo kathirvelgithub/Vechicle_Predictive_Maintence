@@ -12,8 +12,8 @@ interface SidebarProps {
 const menuItems = [
   { id: 'dashboard', label: 'Master Dashboard' },
   { id: 'vehicle-health', label: 'Vehicle Health & Predictive' },
+  { id: 'diagnosis-agent', label: 'Diagnosis Agent' },
   { id: 'scheduling', label: 'Service Scheduling' },
-  { id: 'manufacturing', label: 'Manufacturing Insights' },
   { id: 'security', label: 'Security & UEBA' },
 ];
 

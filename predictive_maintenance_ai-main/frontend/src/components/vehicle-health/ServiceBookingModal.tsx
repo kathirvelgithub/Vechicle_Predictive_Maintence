@@ -236,7 +236,7 @@ export function ServiceBookingModal({ vehicleId, onClose, onSuccess }: ServiceBo
                     disabled={loading}
                     onClick={() => void decideRecommendation('approve')}
                   >
-                    Approve Now (Demo)
+                    Approve Now
                   </Button>
                   <Button
                     variant="outline"

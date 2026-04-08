@@ -1,4 +1,5 @@
 const DEFAULT_API_BASE_URL = "http://localhost:8000/api";
+const DEFAULT_AUTH_BASE_URL = "http://localhost:8080/api";
 
 const sanitizeBaseUrl = (value: string): string => value.replace(/\/$/, "");
 
@@ -89,3 +90,13 @@ const resolveWsCandidates = (apiBaseCandidates: string[]): string[] => {
 export const STREAM_WS_URL_CANDIDATES = resolveWsCandidates(API_BASE_URL_CANDIDATES);
 
 export const STREAM_WS_URL = STREAM_WS_URL_CANDIDATES[0] || resolveWsUrl(API_BASE_URL);
+
+export const AUTH_BASE_URL = sanitizeBaseUrl(
+  ensureApiPath((import.meta.env.VITE_AUTH_BASE_URL as string | undefined) || DEFAULT_AUTH_BASE_URL)
+);
+
+const AUTH_BASE_URL_ALTERNATE = deriveAlternateApiBase(AUTH_BASE_URL);
+
+export const AUTH_BASE_URL_CANDIDATES = Array.from(
+  new Set([AUTH_BASE_URL, AUTH_BASE_URL_ALTERNATE].filter((entry): entry is string => Boolean(entry)))
+);

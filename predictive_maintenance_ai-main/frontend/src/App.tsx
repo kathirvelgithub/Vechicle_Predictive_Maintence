@@ -10,7 +10,8 @@ import { DashboardLayout } from './components/layout2/DashboardLayout';
 import { MasterDashboard } from './components/dashboard/MasterDashboard';
 import { VehicleHealth } from './components/vehicle-health/VehicleHealth';
 import { Scheduling } from './components/scheduling/Scheduling';
-import { Manufacturing } from './components/manufacturing/Manufacturing';
+import { DiagnosisAgent } from './components/diagnosis/DiagnosisAgent';
+import { DiagnosisErrorBoundary } from './components/diagnosis/DiagnosisErrorBoundary';
 import { Security } from './components/security/Security';
 import { Settings } from './components/settings/Settings';
 
@@ -20,6 +21,7 @@ function AppContent() {
   
   const [currentScreen, setCurrentScreen] = useState<'login' | 'register'>('login');
   const [currentPage, setCurrentPage] = useState<string>('dashboard');
+  const [diagnosisVehicleId, setDiagnosisVehicleId] = useState<string | null>(null);
 
   // 1. Loading State (prevents flickering)
   if (isLoading) {
@@ -54,9 +56,15 @@ function AppContent() {
       logout(); // Call context's logout
       setCurrentScreen('login');
       setCurrentPage('dashboard');
+      setDiagnosisVehicleId(null);
     } else {
       setCurrentPage(page);
     }
+  };
+
+  const handleOpenDiagnosisAgent = (vehicleId: string) => {
+    setDiagnosisVehicleId(vehicleId);
+    setCurrentPage('diagnosis-agent');
   };
 
   const renderPage = () => {
@@ -64,11 +72,15 @@ function AppContent() {
       case 'dashboard':
         return <MasterDashboard />;
       case 'vehicle-health':
-        return <VehicleHealth />;
+        return <VehicleHealth onOpenDiagnosisAgent={handleOpenDiagnosisAgent} />;
       case 'scheduling':
         return <Scheduling />;
-      case 'manufacturing':
-        return <Manufacturing />;
+      case 'diagnosis-agent':
+        return (
+          <DiagnosisErrorBoundary onBack={() => setCurrentPage('vehicle-health')}>
+            <DiagnosisAgent vehicleId={diagnosisVehicleId} />
+          </DiagnosisErrorBoundary>
+        );
       case 'security':
         return <Security />;
       case 'settings':

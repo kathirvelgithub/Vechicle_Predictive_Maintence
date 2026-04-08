@@ -1,10 +1,11 @@
 import json
+import os
 import traceback
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
-from database import supabase  # ✅ DB Client
+from database import supabase, execute_query  # ✅ DB Client
 from app.services.live_stream import stream_manager
 from app.domain.diagnosis_rules import generate_rule_based_diagnosis
 from app.config.settings import is_email_confirmation_vehicle, is_sms_pilot_vehicle
@@ -20,6 +21,104 @@ except ImportError:
     master_agent = None
 
 router = APIRouter()
+
+
+def _read_positive_int_env(name: str, default: int) -> int:
+    try:
+        raw = int(str(os.getenv(name, default)).strip())
+        return raw if raw > 0 else default
+    except Exception:
+        return default
+
+
+DIGITAL_TWIN_SUSTAINED_MIN_COUNT = _read_positive_int_env("DIGITAL_TWIN_SUSTAINED_MIN_COUNT", 3)
+DIGITAL_TWIN_SUSTAINED_WINDOW_MINUTES = _read_positive_int_env("DIGITAL_TWIN_SUSTAINED_WINDOW_MINUTES", 20)
+DIGITAL_TWIN_AUTOMATION_COOLDOWN_HOURS = _read_positive_int_env("DIGITAL_TWIN_AUTOMATION_COOLDOWN_HOURS", 24)
+DIGITAL_TWIN_SUSTAINED_MIN_SCORE = _read_positive_int_env("DIGITAL_TWIN_SUSTAINED_MIN_SCORE", 65)
+
+
+def _should_trigger_booking_automation(vehicle_id: str, risk_level: str, risk_score: int) -> Dict[str, Any]:
+    normalized_level = str(risk_level or "").upper().strip()
+    if normalized_level not in {"HIGH", "CRITICAL"}:
+        return {
+            "allow": False,
+            "reason": "risk_level_below_automation_threshold",
+        }
+
+    if int(risk_score or 0) < DIGITAL_TWIN_SUSTAINED_MIN_SCORE:
+        return {
+            "allow": False,
+            "reason": "risk_score_below_sustained_threshold",
+            "risk_score": int(risk_score or 0),
+        }
+
+    recent_rows = execute_query(
+        """
+        SELECT analysis_timestamp, risk_score, risk_level
+        FROM ai_analysis_results
+        WHERE vehicle_id = %s
+          AND analysis_timestamp >= (CURRENT_TIMESTAMP - (%s * interval '1 minute'))
+        ORDER BY analysis_timestamp DESC
+        LIMIT 30
+        """,
+        (vehicle_id, DIGITAL_TWIN_SUSTAINED_WINDOW_MINUTES),
+        fetch=True,
+    )
+
+    consecutive_high = 0
+    for row in recent_rows:
+        row_level = str(row.get("risk_level") or "").upper().strip()
+        try:
+            row_score = int(float(row.get("risk_score") or 0))
+        except (TypeError, ValueError):
+            row_score = 0
+
+        if row_level in {"HIGH", "CRITICAL"} and row_score >= DIGITAL_TWIN_SUSTAINED_MIN_SCORE:
+            consecutive_high += 1
+        else:
+            break
+
+    if consecutive_high < DIGITAL_TWIN_SUSTAINED_MIN_COUNT:
+        return {
+            "allow": False,
+            "reason": "sustained_risk_not_met",
+            "consecutive_high_events": consecutive_high,
+            "required_high_events": DIGITAL_TWIN_SUSTAINED_MIN_COUNT,
+            "window_minutes": DIGITAL_TWIN_SUSTAINED_WINDOW_MINUTES,
+        }
+
+    cooldown_rows = execute_query(
+        """
+        SELECT recommendation_id, created_at, status
+        FROM service_recommendations
+        WHERE vehicle_id = %s
+          AND suggested_by = 'predictive-high-risk-auto'
+          AND created_at >= (CURRENT_TIMESTAMP - (%s * interval '1 hour'))
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (vehicle_id, DIGITAL_TWIN_AUTOMATION_COOLDOWN_HOURS),
+        fetch=True,
+    )
+
+    if cooldown_rows:
+        latest = cooldown_rows[0]
+        return {
+            "allow": False,
+            "reason": "automation_cooldown_active",
+            "cooldown_hours": DIGITAL_TWIN_AUTOMATION_COOLDOWN_HOURS,
+            "latest_recommendation_id": latest.get("recommendation_id"),
+            "latest_status": latest.get("status"),
+            "latest_created_at": str(latest.get("created_at") or ""),
+        }
+
+    return {
+        "allow": True,
+        "reason": "sustained_risk_threshold_met",
+        "consecutive_high_events": consecutive_high,
+        "required_high_events": DIGITAL_TWIN_SUSTAINED_MIN_COUNT,
+        "window_minutes": DIGITAL_TWIN_SUSTAINED_WINDOW_MINUTES,
+    }
 
 # --- MODELS (UNCHANGED) ---
 class PredictiveRequest(BaseModel):
@@ -377,21 +476,36 @@ def persist_analysis_outputs(request: PredictiveRequest, result: Dict[str, Any])
 
     if risk_level in {"HIGH", "CRITICAL"}:
         try:
-            automation_reason = str(
-                result.get("recommended_action")
-                or result.get("diagnosis_report")
-                or f"Automated {risk_level} risk event"
-            )
-            automation_outcome = ensure_customer_confirmation_from_risk_event(
+            automation_guard = _should_trigger_booking_automation(
                 vehicle_id=request.vehicle_id,
-                risk_score=int(result.get("risk_score") or 0),
                 risk_level=risk_level,
-                reason=automation_reason,
-                suggested_by="predictive-high-risk-auto",
-                recipient="maintenance.automation@fleet.local",
-                approver_email="risk.automation@fleet.local",
+                risk_score=int(result.get("risk_score") or 0),
             )
-            safe_result["customer_confirmation_automation"] = automation_outcome
+            if not automation_guard.get("allow"):
+                safe_result["customer_confirmation_automation"] = {
+                    "status": "skipped",
+                    "reason": automation_guard.get("reason", "unknown_guardrail_reason"),
+                    "guard": automation_guard,
+                }
+            else:
+                automation_reason = str(
+                    result.get("recommended_action")
+                    or result.get("diagnosis_report")
+                    or f"Automated {risk_level} risk event"
+                )
+                automation_outcome = ensure_customer_confirmation_from_risk_event(
+                    vehicle_id=request.vehicle_id,
+                    risk_score=int(result.get("risk_score") or 0),
+                    risk_level=risk_level,
+                    reason=automation_reason,
+                    suggested_by="predictive-high-risk-auto",
+                    recipient="maintenance.automation@fleet.local",
+                    approver_email="risk.automation@fleet.local",
+                )
+                safe_result["customer_confirmation_automation"] = {
+                    **automation_outcome,
+                    "guard": automation_guard,
+                }
         except Exception as automation_error:
             print(f"⚠️ High-risk customer confirmation automation failed: {automation_error}")
 

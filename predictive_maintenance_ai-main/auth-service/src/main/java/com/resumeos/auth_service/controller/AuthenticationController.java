@@ -10,6 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/auth")
 public class AuthenticationController {
@@ -33,5 +35,16 @@ public class AuthenticationController {
             @RequestBody AuthenticationRequest request
     ) {
         return ResponseEntity.ok(service.authenticate(request));
+    }
+
+    @PostMapping("/google")
+    public ResponseEntity<AuthenticationResponse> googleLogin(
+            @RequestBody Map<String, String> payload
+    ) {
+        String token = payload.get("token");
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().build();
+        }
+        return ResponseEntity.ok(service.loginWithGoogle(token));
     }
 }

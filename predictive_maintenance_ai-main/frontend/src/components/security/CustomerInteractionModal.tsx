@@ -15,7 +15,7 @@ interface TranscriptItem {
 }
 
 // --- Type Definition for Data Prop (must match your AnalysisResult/Log type) ---
-interface InteractionData {
+export interface InteractionData {
     customerName: string;
     vin: string;
     duration: string;
@@ -29,30 +29,31 @@ interface InteractionData {
 
 interface CustomerInteractionModalProps {
     onClose: () => void;
-    data: InteractionData; // 💥 Data is now required
+    data: InteractionData | null;
 }
 
-// --- FALLBACK/MOCK DATA (for development if real data is missing) ---
-const mockData: InteractionData = {
-    customerName: "Rajesh Kumar",
-    vin: "MH04XY1234",
-    duration: "1m 35s",
-    scheduledDate: "December 14, 2025 at 10:00 AM",
-    channel: "Voice Call",
-    status: "success",
-    customerSentiment: "Positive (8.5/10)",
-    audio_url: null, // Set to null for initial development, or use a mock '/audio/voice_recording_MH04XY1234.mp3'
-    transcript: [
-        { id: 1, speaker: 'AI Agent', text: 'Hello, Mr. Kumar. This is your vehicle service assistant. My diagnostics show that your vehicle (VIN: MH04XY1234) may have a transmission issue that needs attention.', time: '10:46:15' },
-        { id: 6, speaker: 'Customer', text: '10 AM tomorrow works for me.', time: '10:47:15', isVoice: true },
-        { id: 7, speaker: 'AI Agent', text: 'Perfect! I\'ve booked your appointment for December 14th at 10:00 AM at Mumbai Central Service Center.', time: '10:47:22' },
-    ],
-};
-
-
 export function CustomerInteractionModal({ onClose, data }: CustomerInteractionModalProps) {
-    // Use dynamic data, fallback to mock data if the data prop is empty for safer rendering
-    const interaction = data || mockData;
+    const interaction = data;
+
+    if (!interaction) {
+        return (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+                <Card className="w-full max-w-lg shadow-2xl">
+                    <CardHeader className="border-b bg-slate-50">
+                        <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">Customer Interaction</CardTitle>
+                            <Button variant="ghost" size="icon" onClick={onClose} className="hover:bg-slate-200">
+                                <X className="w-5 h-5" />
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6 text-sm text-slate-700">
+                        No customer interaction log is available yet from the backend.
+                    </CardContent>
+                </Card>
+            </div>
+        );
+    }
     
     // CRITICAL FIX LOGIC: Check if audio should be displayed
     const isAudioAvailable = !!interaction.audio_url; 

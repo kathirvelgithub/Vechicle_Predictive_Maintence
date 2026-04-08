@@ -2,6 +2,31 @@ import axios from 'axios';
 import { API_BASE_URL, API_BASE_URL_CANDIDATES } from './config';
 
 const LIVE_DATA_REQUEST_TIMEOUT_MS = 8000;
+const FLEET_STATUS_REQUEST_TIMEOUT_MS = 20000;
+const FLEET_STATUS_CACHE_TTL_MS = 15000;
+const FLEET_STATUS_ERROR_LOG_COOLDOWN_MS = 10000;
+
+let fleetStatusCache: { data: VehicleSummary[]; fetchedAt: number } | null = null;
+let fleetStatusInFlight: Promise<VehicleSummary[]> | null = null;
+let lastFleetStatusErrorLogAt = 0;
+
+const MOCK_VEHICLE_METADATA: Array<{
+    vin: string;
+    model: string;
+    total_distance_km: number;
+    fuel_type: string;
+    next_service_date: string;
+}> = [
+    { vin: 'V-101', model: 'Scorpio N', total_distance_km: 12450, fuel_type: 'Diesel', next_service_date: '2026-05-22' },
+    { vin: 'V-102', model: 'Scorpio Classic', total_distance_km: 9640, fuel_type: 'Diesel', next_service_date: '2026-05-28' },
+    { vin: 'V-103', model: 'XUV 3XO', total_distance_km: 18210, fuel_type: 'Petrol', next_service_date: '2026-06-02' },
+    { vin: 'V-104', model: 'XUV700', total_distance_km: 21890, fuel_type: 'Diesel', next_service_date: '2026-06-09' },
+    { vin: 'V-301', model: 'City', total_distance_km: 20110, fuel_type: 'Petrol', next_service_date: '2026-05-27' },
+    { vin: 'V-302', model: 'Elevate', total_distance_km: 15990, fuel_type: 'Petrol', next_service_date: '2026-06-04' },
+    { vin: 'V-303', model: 'BE 6', total_distance_km: 8730, fuel_type: 'Electric', next_service_date: '2026-06-10' },
+    { vin: 'V-304', model: 'Elevate', total_distance_km: 13380, fuel_type: 'Petrol', next_service_date: '2026-05-25' },
+    { vin: 'V-403', model: 'XUV700', total_distance_km: 17640, fuel_type: 'Petrol', next_service_date: '2026-06-12' },
+];
 
 // ==========================================
 // 1. INTERFACES
@@ -13,6 +38,17 @@ export interface TelematicsData {
     oil_pressure_psi: number;
     rpm: number;
     battery_voltage?: number;
+    speed_kmh?: number;
+    coolant_temp_c?: number;
+    fuel_level_percent?: number;
+    throttle_position_percent?: number;
+    brake_pressure_psi?: number;
+    risk_score?: number;
+    risk_level?: string;
+    anomaly_detected?: boolean;
+    status?: string;
+    dtc_readable?: string;
+    timestamp_utc?: string;
     active_dtc_codes?: string[] | string;
     manual_override_active?: boolean;
     manual_override_keys?: string[];
@@ -58,6 +94,10 @@ export interface VehicleSummary {
     manual_override_keys?: string[];
     diagnosis_source?: string;
     fallback_reason?: string;
+    total_distance_km?: number;
+    fuel_type?: string;
+    next_service_date?: string;
+    last_service_date?: string;
 }
 
 export interface ActivityLog {
@@ -73,6 +113,16 @@ export interface BookingResponse {
     status: string;
     booking_id: string;
     message: string;
+}
+
+export interface ServiceBooking {
+    booking_id: string;
+    vehicle_id: string;
+    scheduled_date: string;
+    status?: string;
+    priority?: string;
+    service_type?: string;
+    estimated_duration_hours?: number;
 }
 
 export interface SchedulingRecommendation {
@@ -233,7 +283,48 @@ const normalizeVehicleSummaryResult = (vehicle: VehicleSummary): VehicleSummary 
         action: normalizeRequiredString(vehicle.action, 'Monitoring'),
         diagnosis_source: normalizeDiagnosisSource(vehicle.diagnosis_source, fallbackReason),
         fallback_reason: fallbackReason,
+        total_distance_km: Number.isFinite(Number(vehicle.total_distance_km)) ? Number(vehicle.total_distance_km) : undefined,
+        fuel_type: normalizeOptionalString(vehicle.fuel_type),
+        next_service_date: normalizeOptionalString(vehicle.next_service_date),
+        last_service_date: normalizeOptionalString(vehicle.last_service_date),
     };
+};
+
+const applyMockVehicleMetadata = (vehicle: VehicleSummary): VehicleSummary => {
+    const vin = normalizeRequiredString(vehicle.vin, '').toUpperCase();
+    const mock = MOCK_VEHICLE_METADATA.find((entry) => entry.vin === vin)
+        || MOCK_VEHICLE_METADATA.find((entry) => entry.model === vehicle.model);
+
+    if (!mock) {
+        return vehicle;
+    }
+
+    return {
+        ...vehicle,
+        total_distance_km:
+            Number.isFinite(Number(vehicle.total_distance_km)) && Number(vehicle.total_distance_km) > 0
+                ? Number(vehicle.total_distance_km)
+                : mock.total_distance_km,
+        fuel_type: normalizeOptionalString(vehicle.fuel_type) || mock.fuel_type,
+        next_service_date: normalizeOptionalString(vehicle.next_service_date) || mock.next_service_date,
+        last_service_date: normalizeOptionalString(vehicle.last_service_date) || mock.next_service_date,
+    };
+};
+
+const buildMockFleetStatus = (): VehicleSummary[] => {
+    return MOCK_VEHICLE_METADATA.map((entry, index) => ({
+        vin: entry.vin,
+        model: entry.model,
+        location: 'Unknown',
+        telematics: 'Mock',
+        predictedFailure: 'System Healthy',
+        probability: 35 + (index % 4) * 10,
+        action: 'Monitoring',
+        total_distance_km: entry.total_distance_km,
+        fuel_type: entry.fuel_type,
+        next_service_date: entry.next_service_date,
+        last_service_date: entry.next_service_date,
+    }));
 };
 
 const requestWithApiBaseFallback = async <T>(
@@ -323,21 +414,59 @@ export const api = {
     },
 
     getFleetStatus: async (): Promise<VehicleSummary[]> => {
-        try {
-            const fleet = await requestWithApiBaseFallback(
-                async (apiBaseUrl) => {
-                    const response = await axios.get(`${apiBaseUrl}/fleet/status`, {
-                        timeout: LIVE_DATA_REQUEST_TIMEOUT_MS,
-                    });
-                    return response.data as VehicleSummary[];
-                },
-                'Failed to load fleet status',
-            );
-            return fleet.map(normalizeVehicleSummaryResult);
-        } catch (error) {
-            console.error("Failed to load fleet status", error);
-            return [];
+        const now = Date.now();
+        const hasFreshCache =
+            fleetStatusCache && now - fleetStatusCache.fetchedAt <= FLEET_STATUS_CACHE_TTL_MS;
+
+        if (hasFreshCache) {
+            return fleetStatusCache.data;
         }
+
+        if (fleetStatusInFlight) {
+            return fleetStatusInFlight;
+        }
+
+        fleetStatusInFlight = (async () => {
+            try {
+                const fleet = await requestWithApiBaseFallback(
+                    async (apiBaseUrl) => {
+                        const response = await axios.get(`${apiBaseUrl}/fleet/status`, {
+                            timeout: FLEET_STATUS_REQUEST_TIMEOUT_MS,
+                        });
+                        return response.data as VehicleSummary[];
+                    },
+                    'Failed to load fleet status',
+                );
+
+                const normalizedFleet = fleet.map(normalizeVehicleSummaryResult).map(applyMockVehicleMetadata);
+                fleetStatusCache = {
+                    data: normalizedFleet,
+                    fetchedAt: Date.now(),
+                };
+                return normalizedFleet;
+            } catch (error) {
+                const shouldLog = Date.now() - lastFleetStatusErrorLogAt > FLEET_STATUS_ERROR_LOG_COOLDOWN_MS;
+                if (shouldLog) {
+                    console.error('Failed to load fleet status', error);
+                    lastFleetStatusErrorLogAt = Date.now();
+                }
+
+                if (fleetStatusCache?.data?.length) {
+                    return fleetStatusCache.data;
+                }
+
+                const mockFleet = buildMockFleetStatus();
+                fleetStatusCache = {
+                    data: mockFleet,
+                    fetchedAt: Date.now(),
+                };
+                return mockFleet;
+            } finally {
+                fleetStatusInFlight = null;
+            }
+        })();
+
+        return fleetStatusInFlight;
     },
 
     getInteractionLog: async (vin: string): Promise<AnalysisResult | null> => {
@@ -363,8 +492,41 @@ export const api = {
 
     getAgentActivity: async (): Promise<ActivityLog[]> => {
         try {
-            const response = await axios.get(`${API_BASE_URL}/fleet/activity`);
-            return response.data;
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/fleet/activity`, {
+                        timeout: LIVE_DATA_REQUEST_TIMEOUT_MS,
+                    });
+                    return response.data as ActivityLog[];
+                },
+                'Failed to load agent activity',
+            );
+        } catch (error) {
+            return [];
+        }
+    },
+
+    getServiceBookings: async (params?: {
+        fromDate?: string;
+        toDate?: string;
+        limit?: number;
+    }): Promise<ServiceBooking[]> => {
+        try {
+            const payload = await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/scheduling/list`, {
+                        params: {
+                            from_date: params?.fromDate,
+                            to_date: params?.toDate,
+                            limit: params?.limit || 500,
+                        },
+                        timeout: LIVE_DATA_REQUEST_TIMEOUT_MS,
+                    });
+                    return response.data as { bookings?: ServiceBooking[] };
+                },
+                'Failed to load service bookings',
+            );
+            return Array.isArray(payload?.bookings) ? payload.bookings : [];
         } catch (error) {
             return [];
         }
@@ -374,19 +536,24 @@ export const api = {
         payload: SchedulingRecommendationCreatePayload,
     ): Promise<SchedulingRecommendationResult> => {
         try {
-            const response = await axios.post(`${API_BASE_URL}/scheduling/recommendations`, {
-                vehicle_id: payload.vehicleId,
-                service_date: payload.serviceDate,
-                requested_start: payload.requestedStart,
-                notes: payload.notes || '',
-                service_type: payload.serviceType,
-                priority: payload.priority || 'medium',
-                risk_score: payload.riskScore || 0,
-                suggested_by: payload.suggestedBy,
-                recipient: payload.recipient,
-                estimated_duration_hours: payload.estimatedDurationHours,
-            });
-            return response.data as SchedulingRecommendationResult;
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.post(`${apiBaseUrl}/scheduling/recommendations`, {
+                        vehicle_id: payload.vehicleId,
+                        service_date: payload.serviceDate,
+                        requested_start: payload.requestedStart,
+                        notes: payload.notes || '',
+                        service_type: payload.serviceType,
+                        priority: payload.priority || 'medium',
+                        risk_score: payload.riskScore || 0,
+                        suggested_by: payload.suggestedBy,
+                        recipient: payload.recipient,
+                        estimated_duration_hours: payload.estimatedDurationHours,
+                    });
+                    return response.data as SchedulingRecommendationResult;
+                },
+                'Failed to create scheduling recommendation',
+            );
         } catch (error) {
             throw extractApiError(error, 'Failed to create scheduling recommendation');
         }
@@ -394,13 +561,19 @@ export const api = {
 
     getPendingRecommendations: async (recipient?: string): Promise<SchedulingRecommendation[]> => {
         try {
-            const response = await axios.get(`${API_BASE_URL}/scheduling/recommendations/pending`, {
-                params: {
-                    recipient: recipient || undefined,
-                    limit: 100,
+            const payload = await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/scheduling/recommendations/pending`, {
+                        params: {
+                            recipient: recipient || undefined,
+                            limit: 100,
+                        },
+                    });
+                    return response.data as { recommendations?: SchedulingRecommendation[] };
                 },
-            });
-            return response.data?.recommendations || [];
+                'Failed to load pending recommendations',
+            );
+            return payload?.recommendations || [];
         } catch (error) {
             throw extractApiError(error, 'Failed to load pending recommendations');
         }
@@ -412,14 +585,19 @@ export const api = {
         notes?: string,
     ): Promise<SchedulingRecommendationResult> => {
         try {
-            const response = await axios.post(
-                `${API_BASE_URL}/scheduling/recommendations/${recommendationId}/approve`,
-                {
-                    approver_email: approverEmail,
-                    notes: notes || '',
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.post(
+                        `${apiBaseUrl}/scheduling/recommendations/${recommendationId}/approve`,
+                        {
+                            approver_email: approverEmail,
+                            notes: notes || '',
+                        },
+                    );
+                    return response.data as SchedulingRecommendationResult;
                 },
+                'Failed to approve recommendation',
             );
-            return response.data as SchedulingRecommendationResult;
         } catch (error) {
             throw extractApiError(error, 'Failed to approve recommendation');
         }
@@ -431,14 +609,19 @@ export const api = {
         notes?: string,
     ): Promise<SchedulingRecommendationResult> => {
         try {
-            const response = await axios.post(
-                `${API_BASE_URL}/scheduling/recommendations/${recommendationId}/reject`,
-                {
-                    approver_email: approverEmail,
-                    notes: notes || '',
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.post(
+                        `${apiBaseUrl}/scheduling/recommendations/${recommendationId}/reject`,
+                        {
+                            approver_email: approverEmail,
+                            notes: notes || '',
+                        },
+                    );
+                    return response.data as SchedulingRecommendationResult;
                 },
+                'Failed to reject recommendation',
             );
-            return response.data as SchedulingRecommendationResult;
         } catch (error) {
             throw extractApiError(error, 'Failed to reject recommendation');
         }
@@ -451,15 +634,20 @@ export const api = {
         limit?: number;
     }): Promise<NotificationItem[]> => {
         try {
-            const response = await axios.get(`${API_BASE_URL}/notifications`, {
-                params: {
-                    vehicle_id: params?.vehicleId,
-                    recipient: params?.recipient,
-                    unread_only: params?.unreadOnly,
-                    limit: params?.limit || 50,
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.get(`${apiBaseUrl}/notifications`, {
+                        params: {
+                            vehicle_id: params?.vehicleId,
+                            recipient: params?.recipient,
+                            unread_only: params?.unreadOnly,
+                            limit: params?.limit || 50,
+                        },
+                    });
+                    return response.data as NotificationItem[];
                 },
-            });
-            return response.data as NotificationItem[];
+                'Failed to fetch notifications',
+            );
         } catch (error) {
             throw extractApiError(error, 'Failed to fetch notifications');
         }
@@ -467,39 +655,32 @@ export const api = {
 
     markNotificationRead: async (notificationId: string): Promise<void> => {
         try {
-            await axios.patch(`${API_BASE_URL}/notifications/${notificationId}/read`);
+            await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    await axios.patch(`${apiBaseUrl}/notifications/${notificationId}/read`);
+                },
+                'Failed to mark notification as read',
+            );
         } catch (error) {
             throw extractApiError(error, 'Failed to mark notification as read');
         }
     },
 
-    // ✅ HYBRID BOOKING FUNCTION (Realtime + Mock Fallback)
     scheduleRepair: async (vehicleId: string, date: string, notes: string): Promise<BookingResponse> => {
         try {
-            console.log(`🔌 Attempting to book slot via Backend for ${vehicleId}...`);
-            
-            // 1. Try Real Backend Call
-            const response = await axios.post(`${API_BASE_URL}/fleet/create`, {
-                vehicle_id: vehicleId,
-                service_date: date,
-                notes: notes
-            });
-            
-            console.log("✅ Booking Success (Realtime):", response.data);
-            return response.data;
-
+            return await requestWithApiBaseFallback(
+                async (apiBaseUrl) => {
+                    const response = await axios.post(`${apiBaseUrl}/fleet/create`, {
+                        vehicle_id: vehicleId,
+                        service_date: date,
+                        notes,
+                    });
+                    return response.data as BookingResponse;
+                },
+                `Failed to book slot for ${vehicleId}`,
+            );
         } catch (error) {
-            // 2. Fallback to Mock Data if Backend fails or vehicle not found
-            console.warn("⚠️ Backend Error or Vehicle Not Found. Switching to Demo Mode.");
-            
-            // Generate a random Mock ID
-            const mockId = "DEMO-BK-" + Math.floor(Math.random() * 10000);
-            
-            return {
-                status: "success", // Fake success
-                booking_id: mockId,
-                message: `(Offline Mode) Service confirmed for ${date}`
-            };
+            throw extractApiError(error, `Failed to book slot for ${vehicleId}`);
         }
     }
 };

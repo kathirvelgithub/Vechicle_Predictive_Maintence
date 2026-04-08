@@ -1,19 +1,70 @@
 import { useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { MapPin } from 'lucide-react';
+import { api, VehicleSummary } from '../../services/api';
 
-const vehicleClusters = [
-  { id: 1, city: 'Mumbai', lat: 19.076, lng: 72.877, count: 2845, healthy: 2620, warning: 180, critical: 45 },
-  { id: 2, city: 'Delhi', lat: 28.704, lng: 77.102, count: 3120, healthy: 2890, warning: 195, critical: 35 },
-  { id: 3, city: 'Bangalore', lat: 12.971, lng: 77.594, count: 2650, healthy: 2450, warning: 165, critical: 35 },
-  { id: 4, city: 'Chennai', lat: 13.082, lng: 80.270, count: 1980, healthy: 1810, warning: 140, critical: 30 },
-  { id: 5, city: 'Hyderabad', lat: 17.385, lng: 78.486, count: 1450, healthy: 1320, warning: 105, critical: 25 },
-  { id: 6, city: 'Pune', lat: 18.520, lng: 73.856, count: 1230, healthy: 1140, warning: 75, critical: 15 },
-];
+const cityCoordinates: Record<string, { lat: number; lng: number }> = {
+  mumbai: { lat: 19.076, lng: 72.877 },
+  delhi: { lat: 28.704, lng: 77.102 },
+  bangalore: { lat: 12.971, lng: 77.594 },
+  chennai: { lat: 13.082, lng: 80.27 },
+  hyderabad: { lat: 17.385, lng: 78.486 },
+  pune: { lat: 18.52, lng: 73.856 },
+};
 
 export function FleetMap() {
   const [hoveredCluster, setHoveredCluster] = useState<number | null>(null);
+  const [fleet, setFleet] = useState<VehicleSummary[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const load = async () => {
+      const rows = await api.getFleetStatus();
+      if (mounted) {
+        setFleet(rows);
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => {
+      void load();
+    }, 30000);
+
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const vehicleClusters = useMemo(() => {
+    const groups = new Map<string, VehicleSummary[]>();
+
+    for (const vehicle of fleet) {
+      const label = String(vehicle.location || 'Unknown').split(',')[0].trim() || 'Unknown';
+      if (!groups.has(label)) {
+        groups.set(label, []);
+      }
+      groups.get(label)?.push(vehicle);
+    }
+
+    return Array.from(groups.entries()).map(([city, vehicles], index) => {
+      const key = city.toLowerCase();
+      const coordinates = cityCoordinates[key] || { lat: 22.9734, lng: 78.6569 };
+      return {
+        id: index + 1,
+        city,
+        lat: coordinates.lat,
+        lng: coordinates.lng,
+        count: vehicles.length,
+        healthy: vehicles.filter((vehicle) => vehicle.probability < 50).length,
+        warning: vehicles.filter((vehicle) => vehicle.probability >= 50 && vehicle.probability < 80).length,
+        critical: vehicles.filter((vehicle) => vehicle.probability >= 80).length,
+      };
+    });
+  }, [fleet]);
 
   return (
     <Card>

@@ -3,9 +3,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+
+# Load .env reliably from project root regardless of current working directory.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
+
 from database import check_database_connection, execute_query
 from app.domain.ml_risk_model import get_model_status
 
@@ -14,13 +20,28 @@ from app.domain.ml_risk_model import get_model_status
 from app.api import routes_predictive, routes_telematics, routes_fleet, routes_test, routes_notifications, routes_scheduling, routes_stream
 from app.services.escalation_queue import escalation_queue
 
+
+def _read_csv_env(name: str, default: str) -> list[str]:
+    raw_value = str(os.getenv(name, default)).strip()
+    values = [part.strip() for part in raw_value.split(",") if part.strip()]
+    return values or [part.strip() for part in default.split(",") if part.strip()]
+
+
 app = FastAPI(title="Predictive Maintenance AI API")
 
 # --- CORS SETUP ---
+cors_origins = _read_csv_env(
+    "CORS_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+)
+cors_allow_credentials = "*" not in cors_origins
+if not cors_allow_credentials:
+    print("[StartupWarning] CORS_ORIGINS includes '*' so allow_credentials is forced to False.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -30,7 +30,7 @@ An end-to-end **AI-powered predictive maintenance system** for vehicle fleet man
 
 ```
 ┌──────────────┐    MQTT     ┌──────────────┐          ┌───────────────┐
-│  IoT Sensors │───────────▶│ IoT Listener  │────────▶│   Supabase    │
+│  IoT Sensors │───────────▶│ IoT Listener  │────────▶│  PostgreSQL   │
 │  (Wokwi/HW) │            │ (iot_listener) │         │  (PostgreSQL) │
 └──────────────┘            └──────────────┘          └───────┬───────┘
                                                               │
@@ -73,7 +73,7 @@ An end-to-end **AI-powered predictive maintenance system** for vehicle fleet man
 |---|---|
 | **AI Agent Orchestration** | LangGraph (StateGraph) · LangChain · Groq (Llama 3.3 70B) |
 | **Backend API** | FastAPI · Uvicorn · Python 3.11+ |
-| **Cloud Database** | Supabase (PostgreSQL) |
+| **Database** | PostgreSQL (local or managed) |
 | **IoT Ingestion** | MQTT (Paho) via public Mosquitto broker |
 | **Auth Service** | Spring Boot 4 · Java 21 · JWT · Google OAuth2 · SQLite |
 | **Frontend** | React 18 · TypeScript · Vite · Tailwind CSS · Radix UI · Recharts |
@@ -91,7 +91,7 @@ The system uses **LangGraph's StateGraph** to orchestrate a **7-node sequential 
 START
   │
   ▼
-┌─────────────────────┐  Query Supabase for vehicle + owner + telematics
+┌─────────────────────┐  Query PostgreSQL for vehicle + owner + telematics
 │  1. Data Analysis   │  Run rule-based risk scoring engine
 │                     │  Output: risk_score, risk_level, detected_issues
 └─────────┬───────────┘
@@ -150,7 +150,7 @@ The rule-based engine in `risk_rules.py` calculates a 0–100 risk score:
 ## Data Flow
 
 ```
-IoT Sensors ──MQTT──▶ iot_listener.py ──▶ Supabase (telematics_logs)
+IoT Sensors ──MQTT──▶ iot_listener.py ──▶ PostgreSQL (telematics_logs)
                                                 │
 fleet_simulator.py ──HTTP POST──────────▶ routes_predictive.py
                                                 │
@@ -159,7 +159,7 @@ fleet_simulator.py ──HTTP POST──────────▶ routes_predi
                                                 │
                                ┌────────────────┴────────────────┐
                                ▼                                 ▼
-                     Supabase Read                    Knowledge Base RAG
+                    PostgreSQL Read                   Knowledge Base RAG
                      (vehicles + owners +             (knowledge_base.json)
                       telematics_logs)                       │
                                │                             ▼
@@ -176,7 +176,7 @@ fleet_simulator.py ──HTTP POST──────────▶ routes_predi
                                           ▼
                                   Feedback + CAPA
                                           ▼
-                             Supabase Write (results persist)
+                            PostgreSQL Write (results persist)
                                           ▼
                              React Dashboard (real-time view)
 ```
@@ -292,7 +292,7 @@ predictive_maintenance_ai-main/
 │   │   ├── state.py              # AgentState TypedDict (shared pipeline state)
 │   │   ├── tools.py              # UEBA-secured tool wrappers
 │   │   └── nodes/                # Individual agent node implementations
-│   │       ├── data_analysis.py  # Node 1: Supabase query + risk scoring
+│   │       ├── data_analysis.py  # Node 1: PostgreSQL query + risk scoring
 │   │       ├── diagnosis.py      # Node 2: LLM + RAG diagnosis
 │   │       ├── customer_engagement.py  # Node 3: Customer notification
 │   │       ├── voice_agent.py    # Node 4: Voice call + gTTS audio
@@ -311,7 +311,7 @@ predictive_maintenance_ai-main/
 │   │   └── settings.py           # Application configuration
 │   │
 │   ├── data/                     # Data access layer
-│   │   ├── iot_listener.py       # MQTT IoT bridge → Supabase
+│   │   ├── iot_listener.py       # MQTT IoT bridge → PostgreSQL
 │   │   ├── loaders.py            # Mock data loader (offline fallback)
 │   │   └── repositories.py      # Local JSON data repositories
 │   │
@@ -361,7 +361,7 @@ predictive_maintenance_ai-main/
 │   ├── test_key.py               # API key validation test
 │   └── list_models.py            # Available model lister
 │
-├── database.py                   # Supabase client singleton
+├── database.py                   # PostgreSQL connection module
 ├── engine_data.csv               # 19,500+ rows of real engine telemetry
 ├── fleet_simulator.py            # Load-testing tool (7 concurrent vehicles)
 ├── requirements.txt              # Python dependencies
@@ -380,7 +380,7 @@ predictive_maintenance_ai-main/
 - **OBD-II DTC mapping** — Translates fault codes (P0217, P0524, P0300, P0171) to plain English
 
 ### Fleet Operations
-- **Real-time IoT ingestion** — MQTT listener bridges sensor data into Supabase
+- **Real-time IoT ingestion** — MQTT listener bridges sensor data into PostgreSQL
 - **Fleet dashboard** — Interactive map, metrics cards, activity feed, agent status
 - **Smart scheduling** — Collision-aware slot booking with business-hours enforcement
 - **Voice alerts** — gTTS-generated MP3 voice calls for Critical-priority issues
@@ -413,7 +413,7 @@ predictive_maintenance_ai-main/
 | **Maven** | 3.9+ (for auth-service) |
 
 You'll also need:
-- A **Supabase** project (free tier works) with `vehicles`, `owners`, and `telematics_logs` tables
+- A running **PostgreSQL** instance with schema initialized from `database/init.sql`
 - A **Groq API key** (for Llama 3.3 70B inference)
 - (Optional) A **Google OAuth Client ID** for social login
 
@@ -431,7 +431,6 @@ venv\Scripts\activate          # Windows
 
 # 3. Install Python dependencies
 pip install -r requirements.txt
-pip install supabase python-dotenv paho-mqtt gtts
 
 # 4. Create .env file in the project root
 # (See Environment Variables section below)
@@ -461,13 +460,15 @@ The frontend will be running at **http://localhost:5173**.
 
 ```powershell
 # 1. Navigate to the auth service directory
- 
- cd C:\kathir\Final_Year_Project\predictive_maintenance_ai-main; .venv\Scripts\activate.ps1; python -m app.main
+cd auth-service
+
+# 2. Start Spring Boot auth service
+.\mvnw.cmd spring-boot:run
 ```
 
 For macOS/Linux:
 ```bash
-export JAVA_HOME=/usr/lib/jvm/java-21
+cd auth-service
 ./mvnw spring-boot:run
 ```
 
@@ -491,6 +492,50 @@ To load-test the system with 7 concurrent vehicles sending critical-condition da
 python fleet_simulator.py
 ```
 
+### Digital Twin Simulator (CARLA + SUMO Ready)
+
+Use the new unified simulator runner that supports staged integration:
+
+```bash
+python digital_twin_simulator.py --source fallback --rounds 3
+```
+
+Source modes:
+- `fallback`: Local synthetic telemetry (works immediately)
+- `sumo`: Uses `traci` when SUMO is running
+- `carla`: Uses `carla` Python client when CARLA is running
+- `hybrid`: Attempts CARLA and SUMO, then falls back safely
+
+Examples:
+
+```bash
+# Run with SUMO adapter (requires SUMO + traci)
+python digital_twin_simulator.py --source sumo --sumo-port 8813 --rounds 5
+
+# Run with CARLA adapter (requires CARLA server + Python API)
+python digital_twin_simulator.py --source carla --carla-host 127.0.0.1 --carla-port 2000 --rounds 5
+
+# Hybrid run with timeout control
+python digital_twin_simulator.py --source hybrid --rounds 5 --request-timeout-sec 20
+
+# Dry-run mode (no API calls, prints generated events)
+python digital_twin_simulator.py --source hybrid --rounds 1 --dry-run
+
+# Readiness check only (backend + selected source dependencies)
+python digital_twin_simulator.py --source hybrid --check-only
+
+# Force run even when backend health check fails
+python digital_twin_simulator.py --source fallback --rounds 2 --skip-health-check
+
+# Require live source readiness before running
+python digital_twin_simulator.py --source hybrid --strict-source-check --rounds 2
+```
+
+Reliability options:
+- Preflight health check is enabled by default before sending telemetry.
+- `--max-consecutive-timeouts` stops early on repeated backend timeouts (default: 4).
+- `--dry-run` is useful for validating CARLA/SUMO event generation independent of backend latency.
+
 ---
 
 ## Environment Variables
@@ -498,15 +543,15 @@ python fleet_simulator.py
 Create a `.env` file in the project root:
 
 ```env
-# Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-service-role-key
+# PostgreSQL
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/predictive_maintenance
+POSTGRES_PASSWORD=your_password
 
 # Groq (LLM)
 GROQ_API_KEY=your-groq-api-key
 
-# (Optional) OpenRouter alternative
-OPENROUTER_API_KEY=your-openrouter-key
+# App
+CORS_ORIGINS=http://localhost:3000,http://localhost:5173
 ```
 
 For the auth service, configure in `auth-service/src/main/resources/application.properties`:

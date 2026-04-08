@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authApi } from '../services/authApi';
 
 // Define the shape of your User object (matches your Backend DTO)
 interface User {
@@ -34,17 +35,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const response = await fetch('http://localhost:8080/api/users/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-        } else {
-          // If token is invalid (401), auto-logout
-          logout();
-        }
+        const userData = await authApi.getCurrentUser(token);
+        setUser(userData);
       } catch (error) {
         console.error("Auth Error:", error);
         logout();

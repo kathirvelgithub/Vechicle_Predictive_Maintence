@@ -1,6 +1,7 @@
 import uuid
 import re
 import secrets
+import os
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
@@ -32,6 +33,18 @@ SMS_REPLY_YES = {"YES", "Y", "CONFIRM", "BOOK"}
 SMS_REPLY_NO = {"NO", "N", "DECLINE", "STOP"}
 EMAIL_REPLY_YES = {"yes", "y", "confirm", "book"}
 EMAIL_REPLY_NO = {"no", "n", "decline", "stop"}
+
+
+def _read_positive_int_env(name: str, fallback: int) -> int:
+    raw = str(os.getenv(name, fallback)).strip()
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        return fallback
+    return parsed if parsed > 0 else fallback
+
+
+RISK_EVENT_REBOOK_GUARD_HOURS = _read_positive_int_env("RISK_EVENT_REBOOK_GUARD_HOURS", 168)
 
 _SCHEMA_INITIALIZED = False
 
@@ -640,6 +653,51 @@ def _active_recommendation_for_vehicle(vehicle_id: str) -> Optional[Dict[str, An
     return _serialize_row(rows[0])
 
 
+def _recent_active_booking_for_vehicle(vehicle_id: str) -> Optional[Dict[str, Any]]:
+    rows = execute_query(
+        """
+        SELECT booking_id, vehicle_id, scheduled_date, status, priority, service_type,
+               COALESCE(estimated_duration_hours, 1) AS estimated_duration_hours
+        FROM service_bookings
+        WHERE vehicle_id = %s
+          AND status NOT IN ('cancelled', 'completed')
+          AND scheduled_date >= (CURRENT_TIMESTAMP - (%s * interval '1 hour'))
+        ORDER BY scheduled_date DESC
+        LIMIT 1
+        """,
+        (vehicle_id, RISK_EVENT_REBOOK_GUARD_HOURS),
+        fetch=True,
+    )
+    if not rows:
+        return None
+    return _serialize_row(rows[0])
+
+
+def _recent_booked_recommendation_for_vehicle(vehicle_id: str) -> Optional[Dict[str, Any]]:
+    rows = execute_query(
+        """
+        SELECT recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+               service_type, priority, risk_score, reason, status, recipient, suggested_by,
+               approver_email, approved_at, booking_id,
+               customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+               customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+               customer_confirmation_declined_at, customer_confirmation_reference,
+               created_at, updated_at
+        FROM service_recommendations
+        WHERE vehicle_id = %s
+          AND status = 'booked'
+          AND recommended_start >= (CURRENT_TIMESTAMP - (%s * interval '1 hour'))
+        ORDER BY recommended_start DESC
+        LIMIT 1
+        """,
+        (vehicle_id, RISK_EVENT_REBOOK_GUARD_HOURS),
+        fetch=True,
+    )
+    if not rows:
+        return None
+    return _serialize_row(rows[0])
+
+
 def _create_recommendation_from_risk(
     vehicle_id: str,
     risk_score: int,
@@ -825,6 +883,28 @@ def ensure_customer_confirmation_from_risk_event(
             "status": "existing_active_request",
             "recommendation": existing,
             "message": "Active recommendation already exists for vehicle. Skipping duplicate creation.",
+        }
+
+    existing_booking = _recent_active_booking_for_vehicle(vehicle_id)
+    if existing_booking:
+        return {
+            "status": "existing_active_booking",
+            "booking": existing_booking,
+            "message": (
+                "Vehicle already has an active service booking in the guard window. "
+                "Skipping duplicate recommendation."
+            ),
+        }
+
+    recent_booked_recommendation = _recent_booked_recommendation_for_vehicle(vehicle_id)
+    if recent_booked_recommendation:
+        return {
+            "status": "existing_booked_recommendation",
+            "recommendation": recent_booked_recommendation,
+            "message": (
+                "Vehicle already has a recently booked recommendation in the guard window. "
+                "Skipping duplicate recommendation."
+            ),
         }
 
     recommendation = _create_recommendation_from_risk(
@@ -1099,18 +1179,47 @@ async def create_booking(request: BookingRequest):
 
 
 @router.get("/list")
-async def list_bookings():
-    """Returns all service bookings from the database."""
+async def list_bookings(
+    limit: int = 500,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    """Returns service bookings with optional date-window filtering."""
     try:
+        normalized_limit = max(50, min(limit, 2000))
+        where_clauses: List[str] = []
+        params: List[Any] = []
+
+        if from_date:
+            parsed_from = _parse_datetime(from_date)
+            if parsed_from is None:
+                raise HTTPException(status_code=400, detail="Invalid from_date format")
+            where_clauses.append("scheduled_date >= %s")
+            params.append(parsed_from)
+
+        if to_date:
+            parsed_to = _parse_datetime(to_date)
+            if parsed_to is None:
+                raise HTTPException(status_code=400, detail="Invalid to_date format")
+            where_clauses.append("scheduled_date <= %s")
+            params.append(parsed_to)
+
+        where_sql = ""
+        if where_clauses:
+            where_sql = " WHERE " + " AND ".join(where_clauses)
+
         rows = execute_query(
             "SELECT booking_id, vehicle_id, scheduled_date, status, priority, service_type, "
             "COALESCE(estimated_duration_hours, 1) AS estimated_duration_hours "
-            "FROM service_bookings ORDER BY scheduled_date DESC LIMIT 100",
+            f"FROM service_bookings{where_sql} ORDER BY scheduled_date ASC LIMIT %s",
+            tuple(params + [normalized_limit]),
             fetch=True,
         )
         return {"bookings": [_serialize_row(row) for row in (rows or [])]}
+    except HTTPException:
+        raise
     except Exception as exc:
-        return {"bookings": [], "error": str(exc)}
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/recommendations")

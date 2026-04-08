@@ -3,7 +3,11 @@ import { VehicleTable } from './VehicleTable';
 import { VehicleDetailPanel } from './VehicleDetailPanel';
 import { VehicleDetailErrorBoundary } from './VehicleDetailErrorBoundary';
 
-export function VehicleHealth() {
+interface VehicleHealthProps {
+  onOpenDiagnosisAgent: (vehicleId: string) => void;
+}
+
+export function VehicleHealth({ onOpenDiagnosisAgent }: VehicleHealthProps) {
   const [selectedVehicle, setSelectedVehicle] = useState<string | null>(null);
 
   return (
@@ -31,6 +35,7 @@ export function VehicleHealth() {
             key={selectedVehicle} // <--- THIS IS THE MAGIC FIX
             vehicleId={selectedVehicle}
             onClose={() => setSelectedVehicle(null)}
+            onOpenDiagnosisAgent={onOpenDiagnosisAgent}
           />
         </VehicleDetailErrorBoundary>
       )}

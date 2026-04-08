@@ -1,4 +1,5 @@
 import traceback
+from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional, List
@@ -29,7 +30,29 @@ class NotificationOut(BaseModel):
     acknowledged: bool = False
 
 
+def _to_notification_out(row: dict) -> dict:
+    sent_at = row.get("sent_at")
+    if isinstance(sent_at, datetime):
+        sent_at = sent_at.isoformat()
+    elif sent_at is not None:
+        sent_at = str(sent_at)
+
+    return {
+        "id": str(row.get("id", "")),
+        "vehicle_id": str(row.get("vehicle_id", "")),
+        "notification_type": row.get("notification_type"),
+        "title": row.get("title"),
+        "message": row.get("message"),
+        "sent_at": sent_at,
+        "channel": row.get("channel"),
+        "recipient": row.get("recipient"),
+        "read": bool(row.get("read", False)),
+        "acknowledged": bool(row.get("acknowledged", False)),
+    }
+
+
 # --- GET /notifications ---
+@router.get("", response_model=List[NotificationOut], include_in_schema=False)
 @router.get("/", response_model=List[NotificationOut])
 async def list_notifications(
     vehicle_id: Optional[str] = None,
@@ -49,9 +72,11 @@ async def list_notifications(
 
         response = query.execute()
         rows = response.get("data", []) if isinstance(response, dict) else []
+        if not isinstance(rows, list):
+            rows = []
         # Sort newest first and limit
         rows.sort(key=lambda r: r.get("sent_at", ""), reverse=True)
-        return rows[:limit]
+        return [_to_notification_out(row) for row in rows[:limit] if isinstance(row, dict)]
     except Exception as e:
         print(f"❌ Error listing notifications: {e}")
         traceback.print_exc()
@@ -59,6 +84,7 @@ async def list_notifications(
 
 
 # --- POST /notifications ---
+@router.post("", response_model=NotificationOut, include_in_schema=False)
 @router.post("/", response_model=NotificationOut)
 async def create_notification(notif: NotificationCreate):
     """Create a new notification record."""
@@ -84,7 +110,7 @@ async def create_notification(notif: NotificationCreate):
                 "notification": created,
             },
         )
-        return created
+        return _to_notification_out(created if isinstance(created, dict) else {})
     except Exception as e:
         print(f"❌ Error creating notification: {e}")
         traceback.print_exc()

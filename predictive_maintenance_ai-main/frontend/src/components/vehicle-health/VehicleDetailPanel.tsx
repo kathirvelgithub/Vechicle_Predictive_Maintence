@@ -12,7 +12,6 @@ import ReactMarkdown from 'react-markdown';
 
 import { api, TelematicsData, AnalysisResult } from '../../services/api';
 import { stream } from '../../services/stream';
-import { ServiceBookingModal } from './ServiceBookingModal';
 
 // --- IMAGE HELPER ---
 const getVehicleImage = (model: unknown) => {
@@ -39,6 +38,7 @@ const getVehicleImage = (model: unknown) => {
 interface VehicleDetailPanelProps {
   vehicleId: string;
   onClose: () => void;
+    onOpenDiagnosisAgent: (vehicleId: string) => void;
 }
 
 interface ManualOverrideInfo {
@@ -86,6 +86,18 @@ const normalizeMetric = (value: unknown, fallback: number, digits = 1): number =
     return Math.round(parsed * factor) / factor;
 };
 
+const normalizeOptionalMetric = (value: unknown, digits = 1): number | null => {
+    if (value === null || value === undefined || value === '') {
+        return null;
+    }
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) {
+        return null;
+    }
+    const factor = 10 ** digits;
+    return Math.round(parsed * factor) / factor;
+};
+
 const formatMetric = (value: unknown, digits = 1): string => {
     const normalized = normalizeMetric(value, 0, digits);
     return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(digits);
@@ -111,6 +123,11 @@ const normalizeTelematicsSnapshot = (data: TelematicsData): TelematicsData => {
         oil_pressure_psi: normalizeMetric(data.oil_pressure_psi, 0),
         battery_voltage: normalizeMetric(data.battery_voltage, 24),
         rpm: Math.round(toFiniteNumber(data.rpm, 0)),
+        speed_kmh: normalizeOptionalMetric(data.speed_kmh, 1) ?? undefined,
+        coolant_temp_c: normalizeOptionalMetric(data.coolant_temp_c, 1) ?? undefined,
+        fuel_level_percent: normalizeOptionalMetric(data.fuel_level_percent, 1) ?? undefined,
+        throttle_position_percent: normalizeOptionalMetric(data.throttle_position_percent, 1) ?? undefined,
+        brake_pressure_psi: normalizeOptionalMetric(data.brake_pressure_psi, 1) ?? undefined,
     };
 };
 
@@ -302,6 +319,25 @@ const formatFallbackReason = (reason: unknown): string | null => {
         .trim();
 };
 
+const formatDateTimeLabel = (value: unknown): string => {
+    if (typeof value !== 'string') {
+        return 'Unavailable';
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return value;
+    }
+
+    return parsed.toLocaleString([], {
+        year: 'numeric',
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
 const getRiskMeta = (riskLevel?: string) => {
     const normalized = String(riskLevel || 'LOW').toUpperCase();
     if (normalized === 'CRITICAL') {
@@ -378,14 +414,13 @@ class SectionErrorBoundary extends React.Component<SectionErrorBoundaryProps, Se
     }
 }
 
-export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelProps) {
+export function VehicleDetailPanel({ vehicleId, onClose, onOpenDiagnosisAgent }: VehicleDetailPanelProps) {
   const [telematics, setTelematics] = useState<TelematicsData | null>(null);
   const [metadata, setMetadata] = useState<any>(null); 
     const [metadataLoadError, setMetadataLoadError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [chartData, setChartData] = useState<any[]>([]); 
-  const [showBooking, setShowBooking] = useState(false);
     const [manualOverrideInfo, setManualOverrideInfo] = useState<ManualOverrideInfo>({ active: false, keys: [] });
     const [isStreamConnected, setIsStreamConnected] = useState(false);
     const [hasFreshStream, setHasFreshStream] = useState(false);
@@ -567,7 +602,18 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                         oil_pressure_psi: toFiniteNumber(payload.oil_pressure_psi, previous?.oil_pressure_psi ?? 0),
                         rpm: toFiniteNumber(payload.rpm, previous?.rpm ?? 0),
                         battery_voltage: toFiniteNumber(payload.battery_voltage, previous?.battery_voltage ?? 24),
+                        speed_kmh: toFiniteNumber(payload.speed_kmh, previous?.speed_kmh ?? 0),
+                        coolant_temp_c: toFiniteNumber(payload.coolant_temp_c, previous?.coolant_temp_c ?? 0),
+                        fuel_level_percent: toFiniteNumber(payload.fuel_level_percent, previous?.fuel_level_percent ?? 0),
+                        throttle_position_percent: toFiniteNumber(payload.throttle_position_percent, previous?.throttle_position_percent ?? 0),
+                        brake_pressure_psi: toFiniteNumber(payload.brake_pressure_psi, previous?.brake_pressure_psi ?? 0),
+                        dtc_readable: toDisplayText(payload.dtc_readable, previous?.dtc_readable ?? ''),
                         active_dtc_codes: previous?.active_dtc_codes,
+                        risk_score: toFiniteNumber(payload.risk_score, previous?.risk_score ?? 0),
+                        risk_level: toDisplayText(payload.risk_level, previous?.risk_level ?? 'LOW'),
+                        anomaly_detected: Boolean(payload.anomaly_detected ?? previous?.anomaly_detected),
+                        status: previous?.status ?? 'Streaming',
+                        timestamp_utc: toDisplayText(payload.timestamp_utc, previous?.timestamp_utc ?? new Date().toISOString()),
                     });
 
                     appendChartPoint(nextSnapshot);
@@ -676,12 +722,6 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
   }, [telematics, analysis, loading, handleRunAI]); 
 
   // Helper: Status Colors
-  const getRiskColor = (level?: string) => {
-      if (level === 'CRITICAL') return 'bg-red-50 border-red-200 text-red-900';
-      if (level === 'HIGH') return 'bg-orange-50 border-orange-200 text-orange-900';
-      return 'bg-green-50 border-green-200 text-green-900';
-  };
-
     const manualOverrideLabel = manualOverrideInfo.keys.length > 0
         ? `${manualOverrideInfo.keys.slice(0, 2).join(', ')}${manualOverrideInfo.keys.length > 2 ? ` +${manualOverrideInfo.keys.length - 2}` : ''}`
         : 'Manual Override Active';
@@ -692,11 +732,11 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
     const riskScoreLabel = analysis ? Math.max(0, Math.min(100, Math.round(toFiniteNumber(analysis.risk_score, 0)))) : 0;
     const diagnosisMarkdown = analysis ? toDisplayText(analysis.diagnosis, 'Diagnosis details are unavailable.') : '';
     const metadataModel = toDisplayText(metadata?.model, 'Unknown Model');
-    const metadataRegistration = toDisplayText(metadata?.registration_no ?? metadata?.vin, 'N/A');
+    const metadataRegistration = toDisplayText(metadata?.registration_no ?? metadata?.vin, '--');
     const metadataVin = toDisplayText(metadata?.vin, vehicleId);
     const metadataFleetId = toDisplayText(metadata?.fleet_id, 'FL-GEN-01');
-    const metadataLocation = toDisplayText(metadata?.location, 'Tracking...');
-    const metadataLastServiceDate = toDisplayText(metadata?.last_service_date, 'Oct 2025');
+    const metadataLocation = toDisplayText(metadata?.location, '--');
+    const metadataLastServiceDate = toDisplayText(metadata?.last_service_date ?? metadata?.next_service_date, '--');
     const ownerName = toDisplayText(metadata?.owners?.full_name, 'Enterprise Fleet');
     const ownerOrganization = toDisplayText(metadata?.owners?.organization_name, 'Logistics Partner');
     const ownerPhone = toDisplayText(metadata?.owners?.phone_number, 'No Phone');
@@ -705,6 +745,219 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
     const uebaMessage = analysis?.ueba_alerts?.[0]?.message
         ? toDisplayText(analysis.ueba_alerts[0].message, '')
         : '';
+    const diagnosisGeneratedAt = formatDateTimeLabel(telematics?.timestamp_utc ?? new Date().toISOString());
+    const issueCount = analysis?.detected_issues?.length ?? 0;
+
+    const mileageCandidates = [metadata?.total_distance_km, metadata?.odometer_km, metadata?.mileage_km, telematics?.total_distance_km]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value) && value >= 0);
+    const mileageLabel = mileageCandidates.length > 0 ? `${Math.round(mileageCandidates[0]).toLocaleString()} km` : '--';
+    const fuelTypeLabel = typeof metadata?.fuel_type === 'string' ? metadata.fuel_type.trim() : '';
+    const fuelPercent = normalizeOptionalMetric(telematics?.fuel_level_percent, 1);
+    const fuelLabel = fuelTypeLabel && fuelTypeLabel.toLowerCase() !== 'unknown'
+        ? fuelTypeLabel
+        : fuelPercent !== null
+            ? `${Number.isInteger(fuelPercent) ? fuelPercent : fuelPercent.toFixed(1)}%`
+            : '--';
+    const serviceDueLabel = metadataLastServiceDate && metadataLastServiceDate !== '--' ? metadataLastServiceDate : '--';
+    const vehicleStatusLabel = toDisplayText(metadata?.status ?? telematics?.status, '--');
+    const statusClass = vehicleStatusLabel.toLowerCase() === 'active' ? 'text-green-600' : 'text-slate-900';
+
+    const formatTelematicsValue = (value: number | null, unit: string, digits = 1) => {
+        if (value === null) {
+            return 'Awaiting feed';
+        }
+        if (digits === 0) {
+            return unit ? `${Math.round(value)} ${unit}` : `${Math.round(value)}`;
+        }
+        const rendered = Number.isInteger(value) ? `${value}` : value.toFixed(digits);
+        return unit ? `${rendered} ${unit}` : rendered;
+    };
+
+    const telematicsMetrics = [
+        {
+            key: 'engine_temp_c',
+            label: 'Engine Temp',
+            value: normalizeOptionalMetric(telematics?.engine_temp_c, 1),
+            unit: 'C',
+            icon: Thermometer,
+            iconClass: 'text-rose-500',
+            danger: (value: number | null) => value !== null && value > 105,
+        },
+        {
+            key: 'oil_pressure_psi',
+            label: 'Oil Pressure',
+            value: normalizeOptionalMetric(telematics?.oil_pressure_psi, 1),
+            unit: 'PSI',
+            icon: Droplets,
+            iconClass: 'text-amber-500',
+            danger: (value: number | null) => value !== null && value < 20,
+        },
+        {
+            key: 'rpm',
+            label: 'RPM',
+            value: normalizeOptionalMetric(telematics?.rpm, 0),
+            unit: '',
+            icon: Gauge,
+            iconClass: 'text-blue-500',
+            danger: (value: number | null) => value !== null && value > 4600,
+        },
+        {
+            key: 'battery_voltage',
+            label: 'Battery',
+            value: normalizeOptionalMetric(telematics?.battery_voltage, 1),
+            unit: 'V',
+            icon: Zap,
+            iconClass: 'text-yellow-500',
+            danger: (value: number | null) => value !== null && value < 12,
+        },
+        {
+            key: 'fuel_level_percent',
+            label: 'Fuel Level',
+            value: normalizeOptionalMetric(telematics?.fuel_level_percent, 1),
+            unit: '%',
+            icon: Activity,
+            iconClass: 'text-emerald-500',
+            danger: (value: number | null) => value !== null && value < 15,
+        },
+        {
+            key: 'coolant_temp_c',
+            label: 'Coolant Temp',
+            value: normalizeOptionalMetric(telematics?.coolant_temp_c, 1),
+            unit: 'C',
+            icon: Thermometer,
+            iconClass: 'text-fuchsia-500',
+            danger: (value: number | null) => value !== null && value > 100,
+        },
+        {
+            key: 'speed_kmh',
+            label: 'Speed',
+            value: normalizeOptionalMetric(telematics?.speed_kmh, 1),
+            unit: 'km/h',
+            icon: Car,
+            iconClass: 'text-indigo-500',
+            danger: () => false,
+        },
+        {
+            key: 'throttle_position_percent',
+            label: 'Throttle',
+            value: normalizeOptionalMetric(telematics?.throttle_position_percent, 1),
+            unit: '%',
+            icon: Gauge,
+            iconClass: 'text-cyan-500',
+            danger: (value: number | null) => value !== null && value > 90,
+        },
+        {
+            key: 'brake_pressure_psi',
+            label: 'Brake Pressure',
+            value: normalizeOptionalMetric(telematics?.brake_pressure_psi, 1),
+            unit: 'PSI',
+            icon: AlertTriangle,
+            iconClass: 'text-orange-500',
+            danger: () => false,
+        },
+    ];
+
+    const availableMetricCount = telematicsMetrics.filter((metric) => metric.value !== null).length;
+    const totalMetricCount = telematicsMetrics.length;
+    const missingMetricCount = totalMetricCount - availableMetricCount;
+    const operationalPriority = riskScoreLabel >= 75 ? 'Immediate' : riskScoreLabel >= 45 ? 'Urgent' : riskScoreLabel >= 20 ? 'Monitor' : 'Routine';
+    const dataReadiness = availableMetricCount >= 8 ? 'High' : availableMetricCount >= 6 ? 'Moderate' : 'Low';
+
+    const adminKpis = [
+        {
+            label: 'Operational Priority',
+            value: operationalPriority,
+            detail: `Risk ${riskMeta.label}`,
+            tone:
+                operationalPriority === 'Immediate'
+                    ? 'border-rose-200 bg-rose-50 text-rose-900'
+                    : operationalPriority === 'Urgent'
+                        ? 'border-orange-200 bg-orange-50 text-orange-900'
+                        : 'border-emerald-200 bg-emerald-50 text-emerald-900',
+        },
+        {
+            label: 'Live Data Coverage',
+            value: `${availableMetricCount}/${totalMetricCount}`,
+            detail: `${missingMetricCount} missing metrics`,
+            tone: 'border-sky-200 bg-sky-50 text-sky-900',
+        },
+        {
+            label: 'Diagnosis Confidence',
+            value: diagnosisSourceMeta.label,
+            detail: fallbackReasonLabel ? 'Fallback active' : 'Primary path',
+            tone: fallbackReasonLabel ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-indigo-200 bg-indigo-50 text-indigo-900',
+        },
+        {
+            label: 'Data Readiness',
+            value: dataReadiness,
+            detail: isStreamConnected ? 'Realtime stream connected' : 'Polling fallback mode',
+            tone: isStreamConnected ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : 'border-slate-200 bg-slate-100 text-slate-800',
+        },
+    ];
+
+    const handleDownloadDiagnosisReport = useCallback(() => {
+        if (!analysis) {
+            return;
+        }
+
+        const generatedAt = new Date().toISOString();
+        const reportPayload = {
+            vehicleId,
+            generatedAt,
+            source: diagnosisSourceMeta.label,
+            riskLevel: riskMeta.label,
+            riskScore: riskScoreLabel,
+            fallbackReason: fallbackReasonLabel,
+            bookingId: bookingIdLabel || null,
+            owner: {
+                name: ownerName,
+                organization: ownerOrganization,
+                phone: ownerPhone,
+                address: ownerAddress,
+            },
+            telematics,
+            diagnosis: analysis.diagnosis,
+            detectedIssues: analysis.detected_issues || [],
+        };
+
+        const markdown = [
+            '# Vehicle Diagnosis Report',
+            `Generated At: ${generatedAt}`,
+            `Vehicle: ${vehicleId}`,
+            `Diagnosis Source: ${diagnosisSourceMeta.label}`,
+            `Risk: ${riskMeta.label} (${riskScoreLabel}/100)`,
+            fallbackReasonLabel ? `Fallback Reason: ${fallbackReasonLabel}` : '',
+            bookingIdLabel ? `Booking ID: ${bookingIdLabel}` : '',
+            '',
+            '## Owner',
+            `- Name: ${ownerName}`,
+            `- Organization: ${ownerOrganization}`,
+            `- Phone: ${ownerPhone}`,
+            `- Address: ${ownerAddress}`,
+            '',
+            '## Diagnosis',
+            analysis.diagnosis,
+            '',
+            '## Raw Snapshot (JSON)',
+            '```json',
+            JSON.stringify(reportPayload, null, 2),
+            '```',
+        ]
+            .filter(Boolean)
+            .join('\n');
+
+        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const safeDate = generatedAt.replace(/[:.]/g, '-');
+        link.href = url;
+        link.download = `${vehicleId}-diagnosis-${safeDate}.md`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, [analysis, vehicleId, diagnosisSourceMeta.label, riskMeta.label, riskScoreLabel, fallbackReasonLabel, bookingIdLabel, ownerName, ownerOrganization, ownerPhone, ownerAddress, telematics]);
 
   // --- 🆕 LOADER ANIMATION ---
   if (!metadata) {
@@ -780,45 +1033,34 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
             
             {/* LEFT: CAR IMAGE & STATS */}
             <Card className="lg:col-span-2 overflow-hidden shadow-md border-0">
-                <div className="relative h-64 bg-slate-100 group">
+                <div className="h-64 bg-slate-100">
                     <img 
                         src={getVehicleImage(metadataModel)}
                         alt="Vehicle" 
                         className="w-full h-full object-cover"
                     />
-                    <div className="absolute bottom-0 left-0 w-full bg-gradient-to-t from-black/80 to-transparent p-6 pt-20">
-                        <h2 className="text-3xl font-bold text-white mb-1">{metadataModel}</h2>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-black/55 px-3 py-1 text-white shadow-sm">
-                                <Car className="w-4 h-4"/> Fleet ID: {metadataFleetId}
-                            </span>
-                            <span className="inline-flex items-center gap-1 rounded-full bg-black/45 px-3 py-1 text-white shadow-sm">
-                                <MapPin className="w-4 h-4"/> {metadataLocation}
-                            </span>
-                        </div>
-                    </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 border-t bg-white divide-y md:divide-y-0 md:divide-x">
                     <div className="p-4 text-center">
                         <p className="text-xs text-slate-500 uppercase font-bold">Mileage</p>
-                        <p className="text-lg font-semibold text-slate-900">12,450 km</p>
+                        <p className="text-lg font-semibold text-slate-900">{mileageLabel}</p>
                     </div>
                     <div className="p-4 text-center">
                         <p className="text-xs text-slate-500 uppercase font-bold">Fuel</p>
-                        <p className="text-lg font-semibold text-slate-900">Electric</p>
+                        <p className="text-lg font-semibold text-slate-900">{fuelLabel}</p>
                     </div>
                     <div className="p-4 text-center">
                         <p className="text-xs text-slate-500 uppercase font-bold">Service Due</p>
-                        <p className="text-lg font-semibold text-slate-900">{metadataLastServiceDate}</p>
+                        <p className="text-lg font-semibold text-slate-900">{serviceDueLabel}</p>
                     </div>
                     <div className="p-4 text-center">
                         <p className="text-xs text-slate-500 uppercase font-bold">Status</p>
-                        <p className="text-lg font-semibold text-green-600">Active</p>
+                        <p className={`text-lg font-semibold ${statusClass}`}>{vehicleStatusLabel}</p>
                     </div>
                 </div>
             </Card>
 
-            {/* RIGHT: OWNER INFO & VEHICLE PROFILE (Larger Fonts) */}
+            {/* RIGHT: OWNER INFO & VEHICLE PROFILE */}
             <div className="space-y-6 flex flex-col h-full">
                 
                 {/* 1. Owner Card */}
@@ -831,41 +1073,44 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                     <Separator />
                     <CardContent className="pt-4 space-y-4">
                         <div>
-                            <p className="font-bold text-slate-900 text-xl">{/* INCREASED SIZE */}
-                                {ownerName}
-                            </p>
-                            <p className="text-base text-slate-500">{/* INCREASED SIZE */}
-                                {ownerOrganization}
-                            </p>
-                            <div className="flex gap-2 mt-2">
-                                <Badge variant="secondary" className="font-normal text-sm px-3 py-1">{/* INCREASED SIZE */}
-                                    {ownerPhone}
-                                </Badge>
-                                <Badge variant="secondary" className="font-normal text-sm px-3 py-1">{/* INCREASED SIZE */}
-                                    {ownerAddress}
-                                </Badge>
+                            <p className="font-bold text-slate-900 text-xl">{ownerName}</p>
+                            <p className="text-base text-slate-500">{ownerOrganization}</p>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-2 text-sm">
+                            <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
+                                <span className="text-slate-500">Phone</span>
+                                <span className="font-medium text-slate-900">{ownerPhone}</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
+                                <span className="text-slate-500">Region</span>
+                                <span className="font-medium text-slate-900">{ownerAddress}</span>
+                            </div>
+                            <div className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2">
+                                <span className="text-slate-500">Fleet ID</span>
+                                <span className="font-mono font-semibold text-slate-900">{metadataFleetId}</span>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3 pt-2">
+
+                        <div className="flex items-center gap-3 pt-1">
                             <Button size="sm" variant="outline" className="flex-1 gap-2 border-blue-200 text-blue-700 hover:bg-blue-50">
-                                <Phone className="w-4 h-4"/> Call
+                                <Phone className="w-4 h-4"/> Contact
                             </Button>
                             <Button size="sm" variant="outline" className="flex-1 gap-2">
-                                <MapPin className="w-4 h-4"/> Locate
+                                <MapPin className="w-4 h-4"/> Track
                             </Button>
                         </div>
                     </CardContent>
                 </Card>
 
-                {/* 2. Vehicle Profile (Mixed Static + Telematics Fields) */}
+                {/* 2. Vehicle Profile */}
                 <Card className="shadow-sm border-0 flex-1">
                     <CardHeader className="pb-3 border-b bg-slate-50/50">
                         <CardTitle className="text-lg flex items-center gap-2 text-slate-800">
                             <Settings className="w-5 h-5 text-blue-600"/> Vehicle Profile
                         </CardTitle>
                     </CardHeader>
-                    <CardContent className="pt-4 space-y-0 text-base"> {/* Base Text Size Increased */}
-                        {/* Static Rows */}
+                    <CardContent className="pt-4 space-y-0 text-base">
                         <div className="flex justify-between py-3 border-b border-slate-100">
                             <span className="text-slate-500 text-sm font-medium">Registration</span>
                             <span className="font-mono font-bold text-slate-900 text-lg">
@@ -876,44 +1121,115 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
                             <span className="text-slate-500 text-sm font-medium">VIN</span>
                             <span className="font-mono font-medium text-slate-700 text-base">{metadataVin}</span>
                         </div>
-                        
-                        {/* Telematics Fields (Previously Cards) - FIXED TYPESCRIPT */}
-                        <div className="flex justify-between py-3 border-b border-slate-100 items-center">
-                            <span className="text-slate-500 flex items-center gap-2 text-sm font-medium">
-                                <Thermometer className="w-4 h-4 text-red-500"/> Engine Temp
-                            </span>
-                            <span className={`font-mono font-bold text-lg ${(telematics?.engine_temp_c ?? 0) > 105 ? "text-red-600 animate-pulse" : "text-slate-900"}`}>
-                                {telematics ? `${formatMetric(telematics.engine_temp_c)}°C` : "--"}
-                            </span>
-                        </div>
-                        <div className="flex justify-between py-3 border-b border-slate-100 items-center">
-                            <span className="text-slate-500 flex items-center gap-2 text-sm font-medium">
-                                <Droplets className="w-4 h-4 text-amber-500"/> Oil Pressure
-                            </span>
-                            <span className={`font-mono font-bold text-lg ${(telematics?.oil_pressure_psi ?? 0) < 20 ? "text-red-600" : "text-slate-900"}`}>
-                                {telematics ? `${formatMetric(telematics.oil_pressure_psi)} PSI` : "--"}
-                            </span>
-                        </div>
-                        <div className="flex justify-between py-3 border-b border-slate-100 items-center">
-                            <span className="text-slate-500 flex items-center gap-2 text-sm font-medium">
-                                <Zap className="w-4 h-4 text-yellow-500"/> Battery
-                            </span>
-                            <span className="font-mono font-bold text-slate-900 text-lg">
-                                {telematics ? `${formatMetric(telematics.battery_voltage)} V` : "--"}
-                            </span>
-                        </div>
                         <div className="flex justify-between py-3 items-center">
-                            <span className="text-slate-500 flex items-center gap-2 text-sm font-medium">
-                                <Gauge className="w-4 h-4 text-blue-500"/> RPM
-                            </span>
-                            <span className="font-mono font-bold text-slate-900 text-lg">
-                                {telematics ? formatMetric(telematics.rpm, 0) : "--"}
-                            </span>
+                            <span className="text-slate-500 text-sm font-medium">Stream State</span>
+                            <Badge variant="outline" className={isStreamConnected ? '!border-emerald-300 !bg-emerald-100 !text-emerald-900' : '!border-amber-300 !bg-amber-100 !text-amber-900'}>
+                                {isStreamConnected ? 'Connected' : 'Fallback Polling'}
+                            </Badge>
                         </div>
                     </CardContent>
                 </Card>
             </div>
         </div>
+
+        <Card className="overflow-hidden border-0 shadow-md ring-1 ring-slate-200">
+            <CardHeader className="border-b bg-gradient-to-r from-[#0b1f3a] via-[#123055] to-[#1f4b75] pb-3">
+                <div className="flex items-center justify-between gap-3">
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider text-sky-100">Admin Command Center</CardTitle>
+                    <Badge variant="outline" className="!border-sky-200/40 !bg-sky-100/10 !text-sky-100">
+                        Decision Ready
+                    </Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="grid gap-3 bg-white p-4 md:grid-cols-2 xl:grid-cols-4">
+                {adminKpis.map((kpi) => (
+                    <div key={kpi.label} className={`rounded-xl border px-4 py-3 transition-shadow hover:shadow-sm ${kpi.tone}`}>
+                        <p className="text-[11px] font-semibold uppercase tracking-wide opacity-75">{kpi.label}</p>
+                        <p className="mt-1 text-2xl font-semibold leading-tight">{kpi.value}</p>
+                        <p className="mt-1 text-xs opacity-80">{kpi.detail}</p>
+                    </div>
+                ))}
+            </CardContent>
+        </Card>
+
+        <Card className="shadow-sm border-0 overflow-hidden">
+            <CardHeader className="border-b bg-gradient-to-r from-slate-50 via-white to-slate-50 pb-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <CardTitle className="text-sm text-slate-600 uppercase tracking-wider font-semibold">9-Point Telematics Snapshot</CardTitle>
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="!border-slate-300 !bg-white !text-slate-700">
+                            Sensors {availableMetricCount}/{totalMetricCount}
+                        </Badge>
+                        <Badge variant="outline" className={hasFreshStream ? '!border-emerald-300 !bg-emerald-100 !text-emerald-900' : '!border-amber-300 !bg-amber-100 !text-amber-900'}>
+                            {hasFreshStream ? 'Live Stream Fresh' : 'Waiting Update'}
+                        </Badge>
+                    </div>
+                </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 gap-3 bg-slate-50/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
+                {telematicsMetrics.map((metric) => {
+                    const Icon = metric.icon;
+                    const isDanger = metric.danger(metric.value);
+                    const isMissing = metric.value === null;
+                    const unitForProgress = metric.unit.toLowerCase();
+                    const normalizedForProgress = metric.value === null
+                        ? 0
+                        : unitForProgress === 'c'
+                            ? Math.max(0, Math.min(100, (metric.value / 120) * 100))
+                            : unitForProgress === '%'
+                                ? Math.max(0, Math.min(100, metric.value))
+                                : unitForProgress === 'v'
+                                    ? Math.max(0, Math.min(100, ((metric.value - 10) / 16) * 100))
+                                    : unitForProgress === 'km/h'
+                                        ? Math.max(0, Math.min(100, (metric.value / 160) * 100))
+                                        : unitForProgress === 'psi'
+                                            ? Math.max(0, Math.min(100, (metric.value / 120) * 100))
+                                            : metric.key === 'rpm'
+                                                ? Math.max(0, Math.min(100, (metric.value / 6000) * 100))
+                                                : 0;
+                    return (
+                        <div
+                            key={metric.key}
+                            className={`rounded-lg border px-4 py-3 ${
+                                isDanger
+                                    ? 'border-rose-300 bg-rose-50'
+                                    : isMissing
+                                        ? 'border-slate-200 bg-white/70'
+                                        : 'border-slate-200 bg-white'
+                            }`}
+                        >
+                            <div className="flex items-center justify-between gap-2 text-sm text-slate-600">
+                                <div className="flex items-center gap-2">
+                                    <Icon className={`h-4 w-4 ${metric.iconClass}`} />
+                                    <span>{metric.label}</span>
+                                </div>
+                                <Badge
+                                    variant="outline"
+                                    className={
+                                        isDanger
+                                            ? '!border-rose-300 !bg-rose-100 !text-rose-900'
+                                            : isMissing
+                                                ? '!border-slate-300 !bg-slate-100 !text-slate-600'
+                                                : '!border-emerald-300 !bg-emerald-100 !text-emerald-900'
+                                    }
+                                >
+                                    {isDanger ? 'Alert' : isMissing ? 'No Data' : 'Live'}
+                                </Badge>
+                            </div>
+                            <p className={`mt-2 font-mono text-xl font-semibold ${isDanger ? 'text-rose-700' : isMissing ? 'text-slate-500' : 'text-slate-900'}`}>
+                                {formatTelematicsValue(metric.value, metric.unit, metric.key === 'rpm' ? 0 : 1)}
+                            </p>
+                            <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                    className={`h-full rounded-full ${isDanger ? 'bg-rose-500' : isMissing ? 'bg-slate-300' : 'bg-emerald-500'}`}
+                                    style={{ width: `${Math.max(8, normalizedForProgress)}%` }}
+                                />
+                            </div>
+                        </div>
+                    );
+                })}
+            </CardContent>
+        </Card>
 
         {/* --- 2. LIVE CHART --- */}
         <Card className="shadow-sm border-0">
@@ -951,171 +1267,25 @@ export function VehicleDetailPanel({ vehicleId, onClose }: VehicleDetailPanelPro
             </CardContent>
         </Card>
 
-        {/* --- 3. AI REPORT SECTION (Fixed Visibility) --- */}
+        {/* --- 3. DIAGNOSIS WORKSPACE CTA --- */}
         <div className="pt-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                    <CheckCircle2 className="w-5 h-5 text-green-600"/> Diagnostics Report
-                </h3>
-                {!analysis && (
-                    <Button onClick={() => handleRunAI(false)} disabled={loading} size="sm">
-                        {loading ? "Running Analysis..." : "Run Manual Diagnosis"}
-                        {!loading && <Play className="w-3 h-3 ml-2"/>}
-                    </Button>
-                )}
-            </div>
-
-            {analysis ? (
-                <Card className="shadow-lg border-0 overflow-hidden ring-1 ring-slate-200">
-                    <div className="bg-slate-900 px-6 py-5 text-white">
-                        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-                            <div className="flex items-start gap-3">
-                                <div className="mt-0.5 rounded-lg bg-blue-500/20 p-2 backdrop-blur-sm">
-                                <Activity className="w-6 h-6 text-blue-400" />
-                            </div>
-                                <div className="space-y-1.5">
-                                    <h3 className="text-lg font-bold">AI Analysis Complete</h3>
-                                    <p className="text-sm text-slate-200">{diagnosisSourceMeta.subtitle}</p>
-                                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                                        <Badge variant="outline" className={`text-[11px] font-semibold tracking-wide ${diagnosisSourceMeta.className}`}>
-                                            {diagnosisSourceMeta.label}
-                                        </Badge>
-                                        {fallbackReasonLabel && (
-                                            <Badge variant="outline" className="text-[11px] font-semibold tracking-wide !border-amber-300 !bg-amber-100 !text-amber-900">
-                                                Fallback Triggered
-                                            </Badge>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                                <Badge variant="outline" className={`text-[11px] font-semibold tracking-wide ${riskMeta.badgeClass}`}>
-                                    Risk {riskMeta.label}
-                                </Badge>
-                                <Badge variant="outline" className="text-[11px] font-semibold tracking-wide !border-slate-300 !bg-slate-100 !text-slate-900">
-                                    Score {riskScoreLabel}/100
-                                </Badge>
-                                <Button variant="outline" size="sm" className="h-9 !border-slate-300 !bg-white !text-slate-900 hover:!bg-slate-100">
-                                    <Download className="mr-2 h-4 w-4"/> Export Report
-                                </Button>
-                            </div>
-                        </div>
+            <Card className="border border-blue-200 bg-blue-50/60 shadow-sm">
+                <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5">
+                    <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Diagnosis Workspace</p>
+                        <h3 className="text-lg font-semibold text-slate-900">Full diagnostic dossier moved to Diagnosis Agent page</h3>
+                        <p className="text-sm text-slate-700">
+                            Open Diagnosis Agent for detailed risk snapshot, key findings, narrative, operations summary, and report generation.
+                        </p>
                     </div>
-                    
-                    <CardContent className="grid grid-cols-1 gap-6 p-6 text-slate-700 lg:grid-cols-3 lg:items-start">
-                        <div className={`lg:col-span-3 rounded-xl border px-4 py-3 ${riskMeta.panelClass}`}>
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                                <p className="text-sm font-semibold text-current">Current Risk Snapshot</p>
-                                <p className="text-sm font-semibold text-current">{riskMeta.label} ({riskScoreLabel}/100)</p>
-                            </div>
-                            <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-white/80">
-                                <div
-                                    className={`h-full rounded-full ${riskMeta.progressClass}`}
-                                    style={{ width: `${Math.max(8, riskScoreLabel)}%` }}
-                                />
-                            </div>
-                            <p className="mt-2 text-xs font-medium text-current/90">{riskMeta.guidance}</p>
-                        </div>
-
-                        <div className="lg:col-span-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Diagnosis Source</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">{diagnosisSourceMeta.label}</p>
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Risk Score</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">{riskScoreLabel}/100</p>
-                            </div>
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
-                                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Pipeline Status</p>
-                                <p className="mt-1 text-sm font-semibold text-slate-900">{fallbackReasonLabel ? 'Fallback Active' : 'Primary Path Healthy'}</p>
-                            </div>
-                        </div>
-
-                        {fallbackReasonLabel && (
-                            <div className="lg:col-span-3 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                                <AlertTriangle className="w-4 h-4 mt-0.5 text-amber-700 shrink-0" />
-                                <div>
-                                    <p className="font-semibold text-amber-900">Fallback Reason</p>
-                                    <p className="mt-1 leading-relaxed text-amber-900">{fallbackReasonLabel}</p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Diagnosis Text */}
-                        <div className="lg:col-span-2 rounded-xl border border-slate-200 bg-white p-5">
-                            <SectionErrorBoundary
-                                sectionName="diagnosis-markdown"
-                                fallback={
-                                    <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                                        {diagnosisMarkdown || 'Diagnosis details are unavailable.'}
-                                    </div>
-                                }
-                            >
-                                <ReactMarkdown 
-                                    className="prose prose-slate max-w-none prose-headings:text-slate-900 prose-p:text-slate-700 prose-li:text-slate-700"
-                                    components={{
-                                        h3: ({children}) => <h3 className="mb-2 mt-4 flex items-center gap-2 text-lg font-bold text-blue-900">{children}</h3>,
-                                        li: ({children}) => <li className="mb-1 ml-4 list-disc marker:text-blue-500">{children}</li>,
-                                        strong: ({children}) => <span className="rounded border border-yellow-200 bg-yellow-50 px-1 font-semibold text-slate-900">{children}</span>,
-                                    }}
-                                >
-                                    {diagnosisMarkdown}
-                                </ReactMarkdown>
-                            </SectionErrorBoundary>
-                        </div>
-
-                        {/* Action Panel */}
-                        <div className="h-fit space-y-4 self-start rounded-xl border border-slate-200 bg-slate-50 p-5">
-                            <h4 className="font-bold text-slate-900 flex items-center gap-2">
-                                <Zap className="w-4 h-4 text-amber-500 fill-amber-500"/> Recommended Actions
-                            </h4>
-                            
-                            {uebaMessage && (
-                                <div className="bg-red-100 border border-red-200 text-red-800 p-3 rounded text-sm flex gap-2">
-                                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5"/>
-                                    {uebaMessage}
-                                </div>
-                            )}
-
-                            <div className="rounded border border-slate-200 bg-white p-3 text-sm italic text-slate-700">
-                                "Immediate service recommended based on sensor anomalies."
-                            </div>
-
-                            <Button 
-                                className={`w-full h-12 text-base shadow-lg ${bookingIdLabel ? "bg-slate-200 text-slate-500 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700 text-white"}`}
-                                onClick={() => !bookingIdLabel && setShowBooking(true)}
-                                disabled={!!bookingIdLabel}
-                            >
-                                {bookingIdLabel ? "Service Scheduled ✅" : "Request Service Recommendation"}
-                            </Button>
-                            
-                            {bookingIdLabel && (
-                                <div className="text-center text-xs text-slate-500 bg-slate-100 py-1 rounded">
-                                    Ref ID: <span className="font-mono font-medium text-slate-700">{bookingIdLabel}</span>
-                                </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            ) : (
-                <div className="border-2 border-dashed border-slate-200 rounded-xl p-12 text-center bg-slate-50/50">
-                    <p className="text-slate-500">No active diagnosis report. Click "Run Manual Diagnosis" or wait for auto-trigger.</p>
-                </div>
-            )}
+                    <Button onClick={() => onOpenDiagnosisAgent(vehicleId)} className="bg-blue-600 text-white hover:bg-blue-700">
+                        <FileText className="mr-2 h-4 w-4" /> Open Diagnosis Agent
+                    </Button>
+                </CardContent>
+            </Card>
         </div>
 
       </div>
-
-      {/* --- MODAL --- */}
-      {showBooking && (
-        <ServiceBookingModal 
-            vehicleId={vehicleId} 
-            onClose={() => setShowBooking(false)} 
-            onSuccess={() => handleRunAI(false)} 
-        />
-      )}
     </div>
   );
 }
