@@ -78,17 +78,17 @@ Generate a realistic phone call transcript as a JSON array.
 Rules:
 1. Be professional, urgent but not alarming
 2. Explain the issue in simple terms
-3. Recommend immediate service booking
-4. Get verbal confirmation from the owner
-5. Confirm the booking details
+3. Recommend immediate service action
+4. Ask the owner to confirm intent (YES/NO)
+5. Do NOT claim that service is already booked; mention confirmation will be completed via email
 
 Format your response as a valid JSON array ONLY (no markdown, no extra text):
 [
   {{"id": 1, "speaker": "AI Agent", "text": "Hello {owner}, this is the Fleet Safety AI calling about your {model}..."}},
   {{"id": 2, "speaker": "{owner}", "text": "Yes, what's the issue?"}},
   {{"id": 3, "speaker": "AI Agent", "text": "We've detected a critical issue: {short_diagnosis}. We recommend immediate service."}},
-  {{"id": 4, "speaker": "{owner}", "text": "That sounds serious. Please go ahead and book the service."}},
-  {{"id": 5, "speaker": "AI Agent", "text": "I've scheduled your service for tomorrow morning. You'll receive a confirmation shortly. Is there anything else?"}},
+    {{"id": 4, "speaker": "{owner}", "text": "That sounds serious. I want to proceed."}},
+    {{"id": 5, "speaker": "AI Agent", "text": "Thank you. We'll send an email confirmation link now. Your booking will be created only after you confirm."}},
   {{"id": 6, "speaker": "{owner}", "text": "No, that's all. Thank you for the quick response."}},
   {{"id": 7, "speaker": "AI Agent", "text": "Thank you {owner}. Drive safely and we'll see you tomorrow. Goodbye."}}
 ]
@@ -159,8 +159,9 @@ Generate 5-8 exchanges. Return ONLY the JSON array, nothing else.
         state["audio_file"] = audio_path 
         state["audio_url"] = web_audio_path 
         state["audio_available"] = True
-        state["customer_decision"] = "BOOKED"
-        state["scheduled_date"] = "Tomorrow 10:00 AM"
+        # Never auto-book from voice simulation; booking is created only after explicit email/SMS confirmation.
+        state["customer_decision"] = "PENDING_CONFIRMATION"
+        state["scheduled_date"] = None
 
         print(f"✅ Voice interaction completed. Frontend URL: {web_audio_path}")
 

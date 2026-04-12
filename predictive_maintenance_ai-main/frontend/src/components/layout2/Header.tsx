@@ -1,5 +1,5 @@
 import { useEffect, useState, MouseEvent } from 'react';
-import { Search, Bell, Settings as SettingsIcon } from 'lucide-react';
+import { Bell, Settings as SettingsIcon } from 'lucide-react';
 import MenuIcon from '@mui/icons-material/Menu';
 
 // MUI Imports
@@ -16,7 +16,6 @@ import Settings from '@mui/icons-material/Settings';
 import Logout from '@mui/icons-material/Logout';
 
 // UI Components
-import { Input } from '../ui/input';
 import { Badge } from '../ui/badge';
 import {
   DropdownMenu,
@@ -146,8 +145,8 @@ export function Header({ onNavigate, onMenuClick }: HeaderProps) {
   return (
     <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10">
       
-      {/* Left Side: Menu Toggle + Search */}
-      <div className="flex items-center flex-1 max-w-2xl gap-3">
+      {/* Left Side: Menu Toggle */}
+      <div className="flex items-center">
         <Button 
             variant="ghost" 
             size="icon" 
@@ -156,15 +155,6 @@ export function Header({ onNavigate, onMenuClick }: HeaderProps) {
         >
             <MenuIcon /> 
         </Button>
-
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <Input
-            type="search"
-            placeholder={`Search ${user?.plant || 'data'}...`} 
-            className="pl-10"
-          />
-        </div>
       </div>
 
       {/* Right Side Actions */}

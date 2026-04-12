@@ -70,6 +70,7 @@ const formatDiagnosisSource = (value?: string): string => {
 };
 
 export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
+  const isVehicleLocked = Boolean(vehicleId);
   const [fleet, setFleet] = useState<VehicleSummary[]>([]);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(vehicleId);
   const [telematics, setTelematics] = useState<TelematicsData | null>(null);
@@ -100,7 +101,9 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
 
         setFleet(rows);
 
-        if (!selectedVehicleId && rows.length > 0) {
+        if (vehicleId) {
+          setSelectedVehicleId(vehicleId);
+        } else if (!selectedVehicleId && rows.length > 0) {
           setSelectedVehicleId(rows[0].vin);
         }
       } finally {
@@ -201,6 +204,10 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
   }, [analysisByVehicle, isLoading, selectedVehicleId]);
 
   const filteredFleet = useMemo(() => {
+    if (isVehicleLocked && vehicleId) {
+      return fleet.filter((entry) => entry.vin === vehicleId);
+    }
+
     const term = searchQuery.trim().toLowerCase();
     if (!term) {
       return fleet;
@@ -212,7 +219,7 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
       const location = String(entry.location || '').toLowerCase();
       return vin.includes(term) || model.includes(term) || location.includes(term);
     });
-  }, [fleet, searchQuery]);
+  }, [fleet, isVehicleLocked, searchQuery, vehicleId]);
 
   const handleDownload = () => {
     if (!selectedVehicleId) {
@@ -252,12 +259,16 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
   return (
     <div className="mx-auto w-full max-w-[1400px] space-y-6">
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="md:pl-2">
           <h1 className="text-3xl font-bold text-slate-900">Diagnosis Agent</h1>
-          <p className="text-slate-600">Select any vehicle card below to generate and review full diagnosis</p>
+          <p className="text-slate-600">
+            {selectedVehicleId
+              ? `Diagnosis view for vehicle ${selectedVehicleId}`
+              : 'Open this page from Vehicle Details to load diagnosis for a specific vehicle.'}
+          </p>
         </div>
-        <div className="flex w-full flex-wrap gap-2 md:w-auto md:justify-end">
+        <div className="flex flex-wrap justify-end gap-2 md:ml-auto md:-mt-1">
           <Button onClick={() => void runDiagnosis()} disabled={!selectedVehicleId || isLoading}>
             <Activity className="mr-2 h-4 w-4" /> {isLoading ? 'Running Diagnosis...' : 'Analyze Selected Vehicle'}
           </Button>
@@ -272,16 +283,18 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
         <Card className="border-slate-200 lg:col-span-5">
           <CardHeader>
             <div className="flex items-center justify-between gap-3">
-              <CardTitle>Fleet Vehicles</CardTitle>
+              <CardTitle>{isVehicleLocked ? 'Selected Vehicle' : 'Fleet Vehicles'}</CardTitle>
               <Badge variant="outline">{filteredFleet.length}</Badge>
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search by VIN, model, or location"
-            />
+            {!isVehicleLocked && (
+              <Input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by VIN, model, or location"
+              />
+            )}
 
             {isFleetLoading && <p className="text-sm text-slate-500">Loading fleet vehicles...</p>}
 
@@ -299,13 +312,16 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
                   key={entry.vin}
                   type="button"
                   onClick={() => {
-                    setSelectedVehicleId(entry.vin);
+                    if (!isVehicleLocked) {
+                      setSelectedVehicleId(entry.vin);
+                    }
                   }}
                   className={`w-full rounded-xl border p-3 text-left transition-all ${
                     isSelected
                       ? 'border-blue-300 bg-blue-50 shadow-sm'
                       : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
                   }`}
+                  disabled={isVehicleLocked}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -337,7 +353,7 @@ export function DiagnosisAgent({ vehicleId }: DiagnosisAgentProps) {
           </CardHeader>
           <CardContent className="space-y-4">
             {!selectedVehicleId && (
-              <p className="text-sm text-slate-500">Select any vehicle from the left panel and click Analyze Selected Vehicle.</p>
+              <p className="text-sm text-slate-500">Open this page from Vehicle Details to run diagnosis for one vehicle.</p>
             )}
 
             {selectedVehicle && (

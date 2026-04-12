@@ -461,28 +461,6 @@ export function VehicleTable({ onSelectVehicle, selectedVehicle }: VehicleTableP
     },
 
     {
-      accessorKey: "predictedFailure",
-      header: "Diagnosis",
-      cell: ({ row }) => {
-        const prob = row.original.probability;
-        const sourceBadge = getDiagnosisSourceBadge(row.original.diagnosis_source, row.original.fallback_reason);
-        return (
-          <div className="space-y-1">
-            <span className={`inline-flex text-xs font-bold px-2 py-1 rounded ${
-              prob >= 80 ? 'bg-red-100 text-red-700' :
-              prob >= 50 ? 'bg-amber-100 text-amber-700' :
-              'bg-slate-100 text-slate-600'
-            }`}>
-              {row.original.predictedFailure}
-            </span>
-            <span className={`inline-flex text-[11px] font-semibold px-2 py-0.5 rounded border ${sourceBadge.className}`}>
-              {sourceBadge.label}
-            </span>
-          </div>
-        );
-      },
-    },
-    {
       accessorKey: "action",
       header: "Status",
       cell: ({ row, getValue }) => {

@@ -3,7 +3,7 @@ export function Footer() {
     <footer className="bg-white border-t border-slate-200 px-6 py-3">
       <div className="flex items-center justify-between text-xs text-slate-600">
         <div>
-          <span>© 2025 PredictAI. All rights reserved.</span>
+          <span>© 2025 FleetPulse. All rights reserved.</span>
         </div>
         <div className="flex items-center space-x-4">
           <a href="#" className="hover:text-blue-600 transition-colors">

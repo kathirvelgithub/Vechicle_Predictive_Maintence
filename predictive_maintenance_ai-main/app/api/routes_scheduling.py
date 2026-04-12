@@ -73,6 +73,11 @@ class RecommendationDecisionRequest(BaseModel):
     notes: str = ""
 
 
+class RecommendationAdminActionRequest(BaseModel):
+    approver_email: Optional[str] = None
+    notes: str = ""
+
+
 class CustomerSmsInboundRequest(BaseModel):
     recommendation_id: Optional[str] = None
     message: Optional[str] = None
@@ -627,6 +632,20 @@ def _risk_priority_and_duration(risk_level: str) -> tuple[str, float]:
     if normalized == "HIGH":
         return "high", 2.0
     return "medium", 1.5
+
+
+def _requires_customer_confirmation(recommendation: Dict[str, Any]) -> bool:
+    """
+    Global guardrail: high/critical recommendations must never auto-book
+    without explicit customer YES confirmation.
+    """
+    priority = _normalize_priority(str(recommendation.get("priority") or "medium"))
+    try:
+        risk_score = int(float(recommendation.get("risk_score") or 0))
+    except (TypeError, ValueError):
+        risk_score = 0
+
+    return priority in {"high", "critical"} or risk_score >= 40
 
 
 def _active_recommendation_for_vehicle(vehicle_id: str) -> Optional[Dict[str, Any]]:
@@ -1482,138 +1501,142 @@ async def approve_recommendation(recommendation_id: str, decision: Recommendatio
                 "message": "Slot is no longer available. Alternative generated.",
             }
 
-        if _is_email_confirmation_pilot(recommendation["vehicle_id"]):
+        requires_customer_confirmation = _requires_customer_confirmation(recommendation)
+
+        if requires_customer_confirmation:
             owner_email = _get_owner_email(recommendation["vehicle_id"])
-            if not owner_email:
+            owner_phone = _get_owner_phone(recommendation["vehicle_id"])
+
+            if not owner_email and not owner_phone:
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"Pilot vehicle {recommendation['vehicle_id']} does not have owner_email. "
-                        "Email confirmation cannot be requested."
+                        f"Vehicle {recommendation['vehicle_id']} requires customer confirmation for high/critical risk, "
+                        "but owner_email and owner_phone are missing."
                     ),
                 )
 
-            confirmation_code = _generate_confirmation_code()
-            confirmation_reference = _generate_confirmation_reference(recommendation_id)
-            confirmation_links = _build_email_confirmation_links(recommendation_id, confirmation_code)
+            if owner_email:
+                confirmation_code = _generate_confirmation_code()
+                confirmation_reference = _generate_confirmation_reference(recommendation_id)
+                confirmation_links = _build_email_confirmation_links(recommendation_id, confirmation_code)
 
-            email_subject = f"Service confirmation needed for {recommendation['vehicle_id']}"
-            email_message = (
-                f"Your vehicle {recommendation['vehicle_id']} has a service slot request at "
-                f"{recommendation['recommended_start']}.\n\n"
-                f"To confirm booking, click YES: {confirmation_links['yes_url']}\n"
-                f"To decline booking, click NO: {confirmation_links['no_url']}\n\n"
-                f"Reference: {confirmation_reference}\n"
-                f"Confirmation code: {confirmation_code}\n"
-            )
-
-            email_result = send_email(owner_email, email_subject, email_message)
-            confirmation_request = _create_email_confirmation_request(
-                recommendation_id=recommendation_id,
-                vehicle_id=recommendation["vehicle_id"],
-                email_address=owner_email,
-                code=confirmation_code,
-                provider_message_id=email_result.message_id,
-                last_error=email_result.error,
-            )
-
-            updated_rows = execute_query(
-                """
-                UPDATE service_recommendations
-                SET status = %s,
-                    approver_email = %s,
-                    approved_at = CURRENT_TIMESTAMP,
-                    customer_confirmation_status = %s,
-                    customer_confirmation_method = %s,
-                    customer_confirmation_email = %s,
-                    customer_confirmation_phone = NULL,
-                    customer_confirmation_requested_at = CURRENT_TIMESTAMP,
-                    customer_confirmation_reference = %s,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE recommendation_id = %s
-                RETURNING recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
-                          service_type, priority, risk_score, reason, status, recipient, suggested_by,
-                          approver_email, approved_at, booking_id,
-                          customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
-                          customer_confirmation_requested_at, customer_confirmation_confirmed_at,
-                          customer_confirmation_declined_at, customer_confirmation_reference,
-                          created_at, updated_at
-                """,
-                (
-                    STATUS_PENDING_CUSTOMER_CONFIRMATION,
-                    approver_email,
-                    "pending" if email_result.ok else "send_failed",
-                    "email",
-                    owner_email,
-                    confirmation_reference,
-                    recommendation_id,
-                ),
-                fetch=True,
-            )
-
-            updated = _serialize_row(updated_rows[0])
-            notification_message = (
-                f"Approval completed for {recommendation_id}. Waiting for customer confirmation over email. "
-                f"Reference: {confirmation_reference}."
-            )
-            if not email_result.ok:
-                notification_message = (
-                    f"Email send failed for {recommendation_id}. Confirmation still pending. "
-                    f"Error: {email_result.error or 'unknown_error'}."
+                email_subject = f"Service confirmation needed for {recommendation['vehicle_id']}"
+                email_message = (
+                    f"Your vehicle {recommendation['vehicle_id']} has a service slot request at "
+                    f"{recommendation['recommended_start']}.\n\n"
+                    f"To confirm booking, click YES: {confirmation_links['yes_url']}\n"
+                    f"To decline booking, click NO: {confirmation_links['no_url']}\n\n"
+                    f"Reference: {confirmation_reference}\n"
+                    f"Confirmation code: {confirmation_code}\n"
                 )
 
-            notification = _insert_notification(
-                vehicle_id=updated["vehicle_id"],
-                notification_type="booking_confirmation_requested",
-                title=f"Customer confirmation needed for {updated['vehicle_id']}",
-                message=notification_message,
-                recipient=owner_email,
-                channel="email",
-            )
+                email_result = send_email(owner_email, email_subject, email_message)
+                confirmation_request = _create_email_confirmation_request(
+                    recommendation_id=recommendation_id,
+                    vehicle_id=recommendation["vehicle_id"],
+                    email_address=owner_email,
+                    code=confirmation_code,
+                    provider_message_id=email_result.message_id,
+                    last_error=email_result.error,
+                )
 
-            await stream_manager.broadcast(
-                "scheduling.recommendation.awaiting_customer_confirmation",
-                {
+                updated_rows = execute_query(
+                    """
+                    UPDATE service_recommendations
+                    SET status = %s,
+                        approver_email = %s,
+                        approved_at = CURRENT_TIMESTAMP,
+                        customer_confirmation_status = %s,
+                        customer_confirmation_method = %s,
+                        customer_confirmation_email = %s,
+                        customer_confirmation_phone = NULL,
+                        customer_confirmation_requested_at = CURRENT_TIMESTAMP,
+                        customer_confirmation_reference = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE recommendation_id = %s
+                    RETURNING recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+                              service_type, priority, risk_score, reason, status, recipient, suggested_by,
+                              approver_email, approved_at, booking_id,
+                              customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+                              customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+                              customer_confirmation_declined_at, customer_confirmation_reference,
+                              created_at, updated_at
+                    """,
+                    (
+                        STATUS_PENDING_CUSTOMER_CONFIRMATION,
+                        approver_email,
+                        "pending" if email_result.ok else "send_failed",
+                        "email",
+                        owner_email,
+                        confirmation_reference,
+                        recommendation_id,
+                    ),
+                    fetch=True,
+                )
+
+                updated = _serialize_row(updated_rows[0])
+                notification_message = (
+                    f"Approval completed for {recommendation_id}. Waiting for customer confirmation over email. "
+                    f"Reference: {confirmation_reference}."
+                )
+                if not email_result.ok:
+                    notification_message = (
+                        f"Email send failed for {recommendation_id}. Confirmation still pending. "
+                        f"Error: {email_result.error or 'unknown_error'}."
+                    )
+
+                notification = _insert_notification(
+                    vehicle_id=updated["vehicle_id"],
+                    notification_type="booking_confirmation_requested",
+                    title=f"Customer confirmation needed for {updated['vehicle_id']}",
+                    message=notification_message,
+                    recipient=owner_email,
+                    channel="email",
+                )
+
+                await stream_manager.broadcast(
+                    "scheduling.recommendation.awaiting_customer_confirmation",
+                    {
+                        "recommendation": updated,
+                        "notification": notification,
+                        "confirmation_reference": confirmation_reference,
+                        "confirmation_method": "email",
+                        "email_status": "sent" if email_result.ok else "failed",
+                    },
+                )
+                await stream_manager.broadcast(
+                    "notification.created",
+                    {
+                        "notification": notification,
+                        "source": "scheduling.recommendation.awaiting_customer_confirmation",
+                    },
+                )
+
+                return {
+                    "status": STATUS_PENDING_CUSTOMER_CONFIRMATION,
                     "recommendation": updated,
                     "notification": notification,
-                    "confirmation_reference": confirmation_reference,
-                    "confirmation_method": "email",
-                    "email_status": "sent" if email_result.ok else "failed",
-                },
-            )
-            await stream_manager.broadcast(
-                "notification.created",
-                {
-                    "notification": notification,
-                    "source": "scheduling.recommendation.awaiting_customer_confirmation",
-                },
-            )
+                    "email_confirmation": {
+                        "status": "sent" if email_result.ok else "failed",
+                        "provider": email_result.provider,
+                        "provider_message_id": email_result.message_id,
+                        "reference": confirmation_reference,
+                        "requested_at": confirmation_request.get("requested_at"),
+                        "expires_at": confirmation_request.get("expires_at"),
+                        "error": email_result.error,
+                        "simulated": email_result.simulated,
+                    },
+                    "message": "Recommendation approved. Waiting for customer email confirmation.",
+                }
 
-            return {
-                "status": STATUS_PENDING_CUSTOMER_CONFIRMATION,
-                "recommendation": updated,
-                "notification": notification,
-                "email_confirmation": {
-                    "status": "sent" if email_result.ok else "failed",
-                    "provider": email_result.provider,
-                    "provider_message_id": email_result.message_id,
-                    "reference": confirmation_reference,
-                    "requested_at": confirmation_request.get("requested_at"),
-                    "expires_at": confirmation_request.get("expires_at"),
-                    "error": email_result.error,
-                    "simulated": email_result.simulated,
-                },
-                "message": "Recommendation approved. Waiting for customer email confirmation.",
-            }
-
-        if _is_pilot_vehicle(recommendation["vehicle_id"]):
-            owner_phone = _get_owner_phone(recommendation["vehicle_id"])
+            # Fallback to SMS when email is not available.
             if not owner_phone:
                 raise HTTPException(
                     status_code=409,
                     detail=(
-                        f"Pilot vehicle {recommendation['vehicle_id']} does not have owner_phone. "
-                        "SMS confirmation cannot be requested."
+                        f"Vehicle {recommendation['vehicle_id']} requires customer confirmation for high/critical risk, "
+                        "but no valid owner_phone is available for SMS confirmation."
                     ),
                 )
 
@@ -2730,6 +2753,256 @@ async def reject_recommendation(recommendation_id: str, decision: Recommendation
             "recommendation": updated,
             "notification": notification,
             "message": "Recommendation rejected.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/recommendations/{recommendation_id}/admin/force-book")
+async def admin_force_book_recommendation(recommendation_id: str, action: RecommendationAdminActionRequest):
+    try:
+        _ensure_recommendation_schema()
+
+        rows = execute_query(
+            """
+            SELECT recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+                   service_type, priority, risk_score, reason, status, recipient, suggested_by,
+                   approver_email, approved_at, booking_id,
+                   customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+                   customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+                   customer_confirmation_declined_at, customer_confirmation_reference,
+                   created_at, updated_at
+            FROM service_recommendations
+            WHERE recommendation_id = %s
+            LIMIT 1
+            """,
+            (recommendation_id,),
+            fetch=True,
+        )
+
+        if not rows:
+            raise HTTPException(status_code=404, detail="Recommendation not found")
+
+        recommendation = _serialize_row(rows[0])
+        current_status = str(recommendation.get("status") or "").lower()
+
+        if current_status == "booked":
+            return {
+                "status": "booked",
+                "booking_id": recommendation.get("booking_id"),
+                "recommendation": recommendation,
+                "message": "Recommendation already booked.",
+            }
+
+        if current_status not in {"recommended", STATUS_PENDING_CUSTOMER_CONFIRMATION}:
+            return {
+                "status": current_status or "unknown",
+                "recommendation": recommendation,
+                "message": f"Admin force-book is not allowed from status '{current_status}'.",
+            }
+
+        slot_start = _parse_datetime(str(recommendation.get("recommended_start")))
+        if slot_start is None:
+            raise HTTPException(status_code=500, detail="Recommendation has invalid slot timestamp")
+
+        duration_hours = float(recommendation.get("estimated_duration_hours") or 1.0)
+        conflict = _find_overlapping_booking(slot_start, duration_hours)
+        if conflict and str(conflict.get("booking_id") or "").strip() != str(recommendation.get("booking_id") or "").strip():
+            alternative = _find_next_available_slot(slot_start + timedelta(minutes=SLOT_STEP_MINUTES), duration_hours)
+            return {
+                "status": "conflict",
+                "recommendation": recommendation,
+                "conflict_booking": conflict,
+                "alternative_start": alternative.isoformat(),
+                "message": "Requested slot conflicts with another booking.",
+            }
+
+        approver_email = action.approver_email or DEFAULT_APPROVER
+        booking_reason = action.notes or "Admin override booking without customer confirmation"
+        booking_id = _ensure_booking_record_from_recommendation(
+            recommendation,
+            reason=booking_reason,
+            booking_id=recommendation.get("booking_id"),
+        )
+
+        updated_rows = execute_query(
+            """
+            UPDATE service_recommendations
+            SET status = 'booked',
+                approver_email = %s,
+                approved_at = CURRENT_TIMESTAMP,
+                booking_id = %s,
+                customer_confirmation_status = CASE
+                    WHEN status = %s THEN 'overridden_by_admin'
+                    ELSE customer_confirmation_status
+                END,
+                customer_confirmation_confirmed_at = CASE
+                    WHEN status = %s THEN CURRENT_TIMESTAMP
+                    ELSE customer_confirmation_confirmed_at
+                END,
+                reason = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE recommendation_id = %s
+            RETURNING recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+                      service_type, priority, risk_score, reason, status, recipient, suggested_by,
+                      approver_email, approved_at, booking_id,
+                      customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+                      customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+                      customer_confirmation_declined_at, customer_confirmation_reference,
+                      created_at, updated_at
+            """,
+            (
+                approver_email,
+                booking_id,
+                STATUS_PENDING_CUSTOMER_CONFIRMATION,
+                STATUS_PENDING_CUSTOMER_CONFIRMATION,
+                booking_reason,
+                recommendation_id,
+            ),
+            fetch=True,
+        )
+
+        updated = _serialize_row(updated_rows[0])
+        notification = _insert_notification(
+            vehicle_id=updated["vehicle_id"],
+            notification_type="admin_force_booked",
+            title=f"Admin force-booked {updated['vehicle_id']}",
+            message=f"Recommendation {recommendation_id} booked by admin override.",
+            recipient=updated.get("recipient"),
+        )
+
+        await stream_manager.broadcast(
+            "scheduling.recommendation.booked",
+            {
+                "recommendation": updated,
+                "booking_id": booking_id,
+                "source": "admin_force_book",
+            },
+        )
+        await stream_manager.broadcast(
+            "scheduling.booking.created",
+            {
+                "booking_id": booking_id,
+                "vehicle_id": updated["vehicle_id"],
+                "scheduled_date": updated["recommended_start"],
+                "source": "admin_force_book",
+            },
+        )
+        await stream_manager.broadcast(
+            "notification.created",
+            {
+                "notification": notification,
+                "source": "scheduling.recommendation.admin_force_booked",
+            },
+        )
+
+        return {
+            "status": "booked",
+            "booking_id": booking_id,
+            "recommendation": updated,
+            "notification": notification,
+            "message": "Recommendation force-booked by admin.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/recommendations/{recommendation_id}/admin/cancel-pending")
+async def admin_cancel_pending_recommendation(recommendation_id: str, action: RecommendationAdminActionRequest):
+    try:
+        _ensure_recommendation_schema()
+
+        rows = execute_query(
+            """
+            UPDATE service_recommendations
+            SET status = %s,
+                approver_email = %s,
+                rejected_at = CURRENT_TIMESTAMP,
+                customer_confirmation_status = 'declined_admin',
+                customer_confirmation_declined_at = CURRENT_TIMESTAMP,
+                reason = %s,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE recommendation_id = %s
+              AND status = %s
+            RETURNING recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+                      service_type, priority, risk_score, reason, status, recipient, suggested_by,
+                      approver_email, rejected_at,
+                      customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+                      customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+                      customer_confirmation_declined_at, customer_confirmation_reference,
+                      created_at, updated_at
+            """,
+            (
+                STATUS_CUSTOMER_DECLINED,
+                action.approver_email or DEFAULT_APPROVER,
+                action.notes or "Pending customer confirmation cancelled by admin",
+                recommendation_id,
+                STATUS_PENDING_CUSTOMER_CONFIRMATION,
+            ),
+            fetch=True,
+        )
+
+        if not rows:
+            existing = execute_query(
+                """
+                SELECT recommendation_id, vehicle_id, recommended_start, estimated_duration_hours,
+                       service_type, priority, risk_score, reason, status, recipient, suggested_by,
+                       approver_email, rejected_at,
+                       customer_confirmation_status, customer_confirmation_method, customer_confirmation_email, customer_confirmation_phone,
+                       customer_confirmation_requested_at, customer_confirmation_confirmed_at,
+                       customer_confirmation_declined_at, customer_confirmation_reference,
+                       created_at, updated_at
+                FROM service_recommendations
+                WHERE recommendation_id = %s
+                LIMIT 1
+                """,
+                (recommendation_id,),
+                fetch=True,
+            )
+            if not existing:
+                raise HTTPException(status_code=404, detail="Recommendation not found")
+            existing_recommendation = _serialize_row(existing[0])
+            return {
+                "status": str(existing_recommendation.get("status") or "unknown").lower(),
+                "recommendation": existing_recommendation,
+                "message": "Only pending customer confirmations can be cancelled by admin.",
+            }
+
+        updated = _serialize_row(rows[0])
+        notification = _insert_notification(
+            vehicle_id=updated["vehicle_id"],
+            notification_type="admin_cancelled_pending_confirmation",
+            title=f"Pending confirmation cancelled for {updated['vehicle_id']}",
+            message=f"Recommendation {recommendation_id} was cancelled by admin.",
+            recipient=updated.get("recipient"),
+        )
+
+        await stream_manager.broadcast(
+            "scheduling.recommendation.customer_declined",
+            {
+                "recommendation": updated,
+                "source": "admin_cancel_pending",
+            },
+        )
+        await stream_manager.broadcast(
+            "notification.created",
+            {
+                "notification": notification,
+                "source": "scheduling.recommendation.admin_cancelled_pending_confirmation",
+            },
+        )
+
+        return {
+            "status": STATUS_CUSTOMER_DECLINED,
+            "recommendation": updated,
+            "notification": notification,
+            "message": "Pending customer confirmation cancelled by admin.",
         }
 
     except HTTPException:

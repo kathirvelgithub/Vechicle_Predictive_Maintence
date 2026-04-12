@@ -5,6 +5,8 @@
 //   3. NASA CMAPSS-inspired piecewise wear model  (accelerating degradation curves)
 //   4. Manual parameter override API  (UI pin any of the 9 parameters)
 
+import { ENGINE_REPLAY_POINTS } from './engine-replay';
+
 export interface TelemetryReading {
   engineTemperature: number;   // 70–110 °C
   rpm: number;                 // 800–5000
@@ -43,6 +45,7 @@ export interface Alert {
 // ── helper maths ─────────────────────────────────────────────────────────────
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const rand  = (lo: number, hi: number) => Math.random() * (hi - lo) + lo;
+const blend = (a: number, b: number, w: number) => a * (1 - w) + b * w;
 
 // ── 1. Markov driving-cycle state machine ────────────────────────────────────
 // Transition probability matrix: MARKOV_TRANSITIONS[from][to]
@@ -114,7 +117,12 @@ function cmapssRate(baseRate: number, health: number): number {
 export class VehicleSimulator {
   private state: TelemetryReading;
   private vehicleId: string;
-  private anomalyChance = 0.04;
+  private anomalyChance = 0.0015;
+  private warmupTicks = 180;
+  private anomalyCooldownTicks = 0;
+  private severeAnomalyChance = 0.08;
+  private ticksSinceReset = 0;
+  private replayCursor = Math.floor(Math.random() * ENGINE_REPLAY_POINTS.length);
 
   // Markov state
   private drivingState: DrivingState = 'city';
@@ -135,16 +143,33 @@ export class VehicleSimulator {
   }
 
   private initialState(): TelemetryReading {
+    const replay = ENGINE_REPLAY_POINTS[this.replayCursor % ENGINE_REPLAY_POINTS.length];
+    const baseRpm = clamp(replay.rpmRaw * 2.0, 900, 3000);
+    const baseOilPsi = clamp(replay.lubOilPressureBar * 9.5, 28, 58);
+    const baseCoolant = clamp(replay.coolantTempC, 72, 100);
+    const baseEngineTemp = clamp(replay.lubOilTempC + 3, 74, 106);
     return {
-      engineTemperature: rand(80, 92),
-      rpm:               rand(900, 2500),
+      engineTemperature: rand(baseEngineTemp - 2, baseEngineTemp + 2),
+      rpm:               rand(baseRpm - 120, baseRpm + 120),
       speed:             rand(30, 80),
       batteryVoltage:    rand(12.2, 13.0),
-      oilPressure:       rand(32, 50),
+      oilPressure:       rand(baseOilPsi - 2.5, baseOilPsi + 2.5),
       fuelLevel:         rand(60, 95),
       engineLoad:        rand(30, 65),
       tirePressure:      rand(30, 34),
-      coolantTemperature:rand(78, 90),
+      coolantTemperature:rand(baseCoolant - 2, baseCoolant + 2),
+    };
+  }
+
+  private nextReplayTarget() {
+    const replay = ENGINE_REPLAY_POINTS[this.replayCursor % ENGINE_REPLAY_POINTS.length];
+    this.replayCursor = (this.replayCursor + 1) % ENGINE_REPLAY_POINTS.length;
+
+    return {
+      rpm: clamp(replay.rpmRaw * 2.0, 900, 3000),
+      oilPressurePsi: clamp(replay.lubOilPressureBar * 9.5, 28, 58),
+      coolantTempC: clamp(replay.coolantTempC, 72, 102),
+      engineTempC: clamp(replay.lubOilTempC + 3, 74, 108),
     };
   }
 
@@ -178,6 +203,8 @@ export class VehicleSimulator {
 
   /** Advance the simulation by one tick and return a full snapshot. */
   tick(): TelemetrySnapshot {
+    this.ticksSinceReset += 1;
+
     // 1. Markov: advance driving state
     this.advanceDrivingState();
     const targets = STATE_TARGETS[this.drivingState];
@@ -188,6 +215,8 @@ export class VehicleSimulator {
     const batDeg  = (100 - this.componentHealth.battery)  / 100;
     const tireDeg = (100 - this.componentHealth.tires)    / 100;
 
+    const replayTarget = this.nextReplayTarget();
+
     // Compute degraded OU means (wear shifts parameter targets toward failure values)
     const muEngTemp  = (targets.speedMu === 0 ? 76 : 86 + (targets.rpmMu / 5000) * 18) + engDeg  * 14;
     const muCoolant  = muEngTemp * 0.92 + coolDeg * 6;
@@ -195,13 +224,18 @@ export class VehicleSimulator {
     const muBatV     = 12.6 + (targets.rpmMu / 5000) * 0.8  - batDeg  * 0.5;
     const muTirePsi  = 32 - tireDeg * 4;
 
+    const dataDrivenRpm = blend(targets.rpmMu, replayTarget.rpm, 0.55);
+    const dataDrivenEngTemp = blend(muEngTemp, replayTarget.engineTempC, 0.6);
+    const dataDrivenCoolant = blend(muCoolant, replayTarget.coolantTempC, 0.65);
+    const dataDrivenOil = blend(muOilPsi, replayTarget.oilPressurePsi, 0.35);
+
     // 2. OU steps toward degraded targets
-    this.state.engineTemperature  = clamp(ouStep(this.state.engineTemperature,  muEngTemp,       OU.engineTemperature.theta,  OU.engineTemperature.sigma  + engDeg  * 0.5), 70, 115);
-    this.state.rpm                = clamp(ouStep(this.state.rpm,                targets.rpmMu,   OU.rpm.theta,                OU.rpm.sigma                             ), 700, 5500);
+    this.state.engineTemperature  = clamp(ouStep(this.state.engineTemperature,  dataDrivenEngTemp, OU.engineTemperature.theta,  OU.engineTemperature.sigma  + engDeg  * 0.4), 70, 115);
+    this.state.rpm                = clamp(ouStep(this.state.rpm,                dataDrivenRpm,    OU.rpm.theta,                OU.rpm.sigma                             ), 700, 5500);
     this.state.speed              = clamp(ouStep(this.state.speed,              targets.speedMu, OU.speed.theta,              OU.speed.sigma                           ),   0, 140);
     this.state.engineLoad         = clamp(ouStep(this.state.engineLoad,         targets.loadMu,  OU.engineLoad.theta,         OU.engineLoad.sigma                      ),   0, 100);
-    this.state.coolantTemperature = clamp(ouStep(this.state.coolantTemperature, muCoolant,       OU.coolantTemperature.theta, OU.coolantTemperature.sigma + coolDeg * 0.4), 70, 110);
-    this.state.oilPressure        = clamp(ouStep(this.state.oilPressure,        muOilPsi,        OU.oilPressure.theta,        OU.oilPressure.sigma                     ),  15,  72);
+    this.state.coolantTemperature = clamp(ouStep(this.state.coolantTemperature, dataDrivenCoolant, OU.coolantTemperature.theta, OU.coolantTemperature.sigma + coolDeg * 0.35), 70, 110);
+    this.state.oilPressure        = clamp(ouStep(this.state.oilPressure,        dataDrivenOil,     OU.oilPressure.theta,        OU.oilPressure.sigma                     ),  15,  72);
     this.state.batteryVoltage     = clamp(ouStep(this.state.batteryVoltage,     muBatV,          OU.batteryVoltage.theta,     OU.batteryVoltage.sigma + batDeg  * 0.02  ),  11.0, 14.5);
     this.state.tirePressure       = clamp(ouStep(this.state.tirePressure,       muTirePsi,       OU.tirePressure.theta,        OU.tirePressure.sigma                    ),  26,  38);
 
@@ -217,8 +251,15 @@ export class VehicleSimulator {
     this.updateWear();
 
     // 4. Random anomaly injection (chance increases as components degrade)
-    const degradedChance = this.anomalyChance + engDeg * 0.04;
-    if (Math.random() < degradedChance) this.injectAnomaly();
+    const warmupComplete = this.ticksSinceReset >= this.warmupTicks;
+    const degradedChance = this.anomalyChance + engDeg * 0.004;
+    if (this.anomalyCooldownTicks > 0) {
+      this.anomalyCooldownTicks -= 1;
+    } else if (warmupComplete && Math.random() < degradedChance) {
+      const severe = Math.random() < this.severeAnomalyChance;
+      this.injectAnomaly(severe);
+      this.anomalyCooldownTicks = severe ? 18 : 12;
+    }
 
     // Apply manual overrides — override bypasses simulation, pins the value
     const finalState: TelemetryReading = { ...this.state };
@@ -235,7 +276,7 @@ export class VehicleSimulator {
     const alerts     = this.evaluateAlerts(finalState);
     const healthScore = this.computeHealth(finalState);
     const status: TelemetrySnapshot['status'] =
-      healthScore >= 75 ? 'healthy' : healthScore >= 45 ? 'warning' : 'critical';
+      healthScore >= 75 ? 'healthy' : healthScore >= 35 ? 'warning' : 'critical';
 
     return {
       ...finalState,
@@ -271,15 +312,26 @@ export class VehicleSimulator {
     this.operationalHours = 0;
     this.componentHealth  = { engine: 100, brakes: 100, battery: 100, cooling: 100, tires: 100 };
     this.overrides        = {};
+    this.ticksSinceReset = 0;
+    this.anomalyCooldownTicks = 0;
+    this.replayCursor = Math.floor(Math.random() * ENGINE_REPLAY_POINTS.length);
   }
 
   // ── anomaly injection ──────────────────────────────────────────────────────
-  private injectAnomaly() {
+  private injectAnomaly(severe: boolean) {
     switch (Math.floor(Math.random() * 4)) {
-      case 0: this.state.engineTemperature  = rand(104, 110);  break;
-      case 1: this.state.oilPressure        = rand(12,  18);   break;
-      case 2: this.state.batteryVoltage     = rand(11.0, 11.4); break;
-      case 3: this.state.coolantTemperature = rand(100, 105);  break;
+      case 0:
+        this.state.engineTemperature = severe ? rand(104, 110) : rand(98, 104);
+        break;
+      case 1:
+        this.state.oilPressure = severe ? rand(12, 18) : rand(24, 30);
+        break;
+      case 2:
+        this.state.batteryVoltage = severe ? rand(11.0, 11.4) : rand(11.7, 12.1);
+        break;
+      case 3:
+        this.state.coolantTemperature = severe ? rand(100, 105) : rand(96, 101);
+        break;
     }
   }
 

@@ -9,6 +9,7 @@ import {
 
 const MAX_HISTORY = 60;
 const ANALYSIS_INTERVAL = 15; // trigger AI every ~30s
+const CRITICAL_SUSTAINED_TICKS = 3;
 
 // Fleet vehicles matching the database seed
 const FLEET_VEHICLES = [
@@ -47,6 +48,7 @@ export function useSimulation() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const tickCountRef = useRef(0);
   const analysisInFlightRef = useRef<Set<string>>(new Set());
+  const criticalStreakRef = useRef<Map<string, number>>(new Map());
 
   const [running, setRunning]       = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState(FLEET_VEHICLES[0].id);
@@ -157,7 +159,12 @@ export function useSimulation() {
     const isAnalysisTick = tickCountRef.current % ANALYSIS_INTERVAL === 0;
 
     for (const snap of batchSnapshots) {
-      const shouldAnalyze = isAnalysisTick || snap.status === 'critical';
+      const previous = criticalStreakRef.current.get(snap.vehicleId) || 0;
+      const nextStreak = snap.status === 'critical' ? previous + 1 : 0;
+      criticalStreakRef.current.set(snap.vehicleId, nextStreak);
+
+      const sustainedCritical = nextStreak >= CRITICAL_SUSTAINED_TICKS;
+      const shouldAnalyze = isAnalysisTick || sustainedCritical;
       if (shouldAnalyze) {
         triggerAnalysis(snap);
       }
@@ -199,6 +206,7 @@ export function useSimulation() {
       sim.reset();
     }
     tickCountRef.current = 0;
+    criticalStreakRef.current.clear();
     setOverridesMap({});
     setFleet(prev => {
       const next = new Map(prev);

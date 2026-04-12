@@ -39,6 +39,7 @@ def diagnosis_node(state: AgentState) -> AgentState:
     rule_risk_level = str(state.get("rule_risk_level", hybrid_risk_level)).upper()
     ml_risk_score = state.get("ml_risk_score")
     risk_model_used = state.get("risk_model_used", "rules-only")
+    memory_context_summary = str(state.get("memory_context_summary") or "No historical context available")
 
     # 2. Prepare Issues List
     detected = state.get("detected_issues", [])
@@ -93,6 +94,9 @@ def diagnosis_node(state: AgentState) -> AgentState:
     - Rule Guardrail Score: {rule_risk_score}/100 ({rule_risk_level})
     - ML Calibrated Score: {ml_risk_score if ml_risk_score is not None else 'Unavailable'}
     - Risk Model Source: {risk_model_used}
+
+    Historical Memory Context:
+    - {memory_context_summary}
     
     📘 OFFICIAL SERVICE MANUAL GUIDELINES:
     {expert_advice}

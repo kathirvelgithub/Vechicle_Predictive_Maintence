@@ -48,6 +48,21 @@ try:
 except ImportError:
     def manufacturing_node(state): return state
 
+try:
+    from app.agents.nodes.planner import planner_node
+except ImportError:
+    def planner_node(state): return state
+
+try:
+    from app.agents.nodes.verifier import verifier_node
+except ImportError:
+    def verifier_node(state): return state
+
+try:
+    from app.agents.nodes.memory_context import memory_context_node
+except ImportError:
+    def memory_context_node(state): return state
+
 
 def _track_node(node_name, node_fn):
     def wrapped(state):
@@ -58,6 +73,7 @@ def _track_node(node_name, node_fn):
 
         if node_name in {
             "diagnosis",
+            "planner",
             "customer_engagement",
             "voice_interaction",
             "feedback",
@@ -106,6 +122,13 @@ def _route_after_diagnosis(state: AgentState) -> str:
         return "finish"
     return "continue"
 
+
+def _route_after_verifier(state: AgentState) -> str:
+    verification_status = str(state.get("verification_status") or "").strip().lower()
+    if verification_status == "blocked":
+        return "skip_feedback"
+    return "continue"
+
 # ==========================================
 # BUILD THE GRAPH
 # ==========================================
@@ -115,10 +138,13 @@ def build_graph():
     # Add Nodes
     workflow.add_node("data_analysis", _track_node("data_analysis", data_analysis_node))
     workflow.add_node("supervisor", _track_node("supervisor", supervisor_node))
+    workflow.add_node("memory_context", _track_node("memory_context", memory_context_node))
     workflow.add_node("diagnosis", _track_node("diagnosis", diagnosis_node))
+    workflow.add_node("planner", _track_node("planner", planner_node))
     workflow.add_node("customer_engagement", _track_node("customer_engagement", customer_node))
     workflow.add_node("voice_interaction", _track_node("voice_interaction", voice_interaction_node))
     workflow.add_node("scheduling", _track_node("scheduling", scheduling_node))
+    workflow.add_node("verifier", _track_node("verifier", verifier_node))
     workflow.add_node("feedback", _track_node("feedback", feedback_node))
     workflow.add_node("manufacturing", _track_node("manufacturing", manufacturing_node))
 
@@ -131,25 +157,37 @@ def build_graph():
         _route_from_supervisor,
         {
             "observe_only": END,
-            "to_diagnosis": "diagnosis",
+            "to_diagnosis": "memory_context",
         },
     )
+
+    workflow.add_edge("memory_context", "diagnosis")
 
     workflow.add_conditional_edges(
         "diagnosis",
         _route_after_diagnosis,
         {
             "finish": END,
-            "continue": "customer_engagement",
+            "continue": "planner",
         },
     )
     
     # Parallel/Fork: Voice or Text? 
     # For simplicity, we run Voice -> Scheduler
+    workflow.add_edge("planner", "customer_engagement")
     workflow.add_edge("customer_engagement", "voice_interaction")
     workflow.add_edge("voice_interaction", "scheduling")
-    
-    workflow.add_edge("scheduling", "feedback")
+
+    workflow.add_edge("scheduling", "verifier")
+    workflow.add_conditional_edges(
+        "verifier",
+        _route_after_verifier,
+        {
+            "continue": "feedback",
+            "skip_feedback": "manufacturing",
+        },
+    )
+
     workflow.add_edge("feedback", "manufacturing")
     workflow.add_edge("manufacturing", END)
 
@@ -173,6 +211,15 @@ def run_predictive_flow(vehicle_id: str) -> dict:
         "node_statuses": {},
         "node_latency_ms": {},
         "model_used_by_node": {},
+        "execution_plan": None,
+        "plan_confidence": None,
+        "verification_status": None,
+        "verification_notes": [],
+        "requires_human_review": False,
+        "historical_context": None,
+        "memory_context_summary": None,
+        "escalation_reason": None,
+        "escalation_level": None,
         "vehicle_id": vehicle_id,
         "vin": None,
         "vehicle_metadata": None,

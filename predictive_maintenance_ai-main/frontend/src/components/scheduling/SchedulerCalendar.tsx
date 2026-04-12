@@ -163,17 +163,17 @@ export function SchedulerCalendar({ refreshToken = 0 }: SchedulerCalendarProps) 
 
   // --- RENDER ---
   return (
-    <Card className="border-slate-200 shadow-sm">
+    <Card className="overflow-hidden border-slate-200 bg-white/95 shadow-sm backdrop-blur">
       <CardHeader>
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle>Service Bay Scheduler</CardTitle>
+            <CardTitle className="text-2xl tracking-tight">Service Bay Scheduler</CardTitle>
             <p className="text-sm text-slate-600 mt-1">Mumbai Central Service Center · Dispatch Grid</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex items-center space-x-4">
                 <Button variant="outline" size="icon" onClick={() => changeDate(-1)}><ChevronLeft className="w-4 h-4" /></Button>
-                <div className="flex items-center space-x-2 px-3 min-w-[180px] justify-center font-mono">
+                <div className="flex items-center space-x-2 px-3 py-1.5 min-w-[180px] justify-center rounded-full border border-slate-200 bg-slate-50 font-mono">
                     <CalendarIcon className="w-4 h-4 text-slate-600" />
                     <span>{formattedDate}</span>
                 </div>
@@ -188,23 +188,22 @@ export function SchedulerCalendar({ refreshToken = 0 }: SchedulerCalendarProps) 
         </div>
         
         {/* LEGEND */}
-        <div className="flex items-center space-x-6 mt-4 text-sm border-t pt-4">
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-green-500 rounded-full" />
-            <span className="text-slate-600 font-medium">Completed</span>
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4 text-sm">
+          <div className="inline-flex items-center space-x-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1">
+            <div className="w-2.5 h-2.5 bg-green-500 rounded-full" />
+            <span className="text-emerald-700 font-medium">Completed</span>
           </div>
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
-            <span className="text-slate-600 font-medium">Pending</span>
+          <div className="inline-flex items-center space-x-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1">
+            <div className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+            <span className="text-rose-700 font-medium">Pending</span>
           </div>
-          <div className="h-4 w-px bg-slate-300 mx-2"></div> 
-          <div className="flex items-center space-x-2">
-             <div className="w-3 h-3 bg-green-100 border border-green-500 rounded-sm" />
-             <span className="text-slate-500">AI Confirmed</span>
+          <div className="inline-flex items-center space-x-2 rounded-full border border-emerald-200 bg-white px-3 py-1">
+             <div className="w-2.5 h-2.5 bg-green-100 border border-green-500 rounded-sm" />
+             <span className="text-slate-600">AI Confirmed</span>
           </div>
-          <div className="flex items-center space-x-2">
-             <div className="w-3 h-3 bg-blue-50 border border-blue-400 rounded-sm" />
-             <span className="text-slate-500">Manual Queue</span>
+          <div className="inline-flex items-center space-x-2 rounded-full border border-blue-200 bg-white px-3 py-1">
+             <div className="w-2.5 h-2.5 bg-blue-50 border border-blue-400 rounded-sm" />
+             <span className="text-slate-600">Manual Queue</span>
           </div>
         </div>
       </CardHeader>
@@ -213,20 +212,20 @@ export function SchedulerCalendar({ refreshToken = 0 }: SchedulerCalendarProps) 
         {loading ? (
             <div className="flex items-center justify-center h-40 text-slate-500"><RefreshCw className="w-6 h-6 animate-spin mr-2"/> Syncing with AI Dispatcher...</div>
         ) : (
-            <div className="border rounded-lg overflow-hidden bg-white">
-            <div className="grid grid-cols-5 bg-slate-50">
-                <div className="p-3 border-r border-b font-medium text-slate-500 text-sm">Time</div>
-                {bays.map((bay) => (<div key={bay.id} className="p-3 border-r border-b text-center font-bold text-slate-700">{bay.name}</div>))}
+            <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-inner">
+            <div className="grid grid-cols-5 bg-gradient-to-r from-slate-50 to-sky-50">
+              <div className="p-3 border-r border-b font-semibold text-slate-600 text-sm">Time</div>
+              {bays.map((bay) => (<div key={bay.id} className="p-3 border-r border-b text-center font-bold text-slate-700">{bay.name}</div>))}
             </div>
             {timeSlots.map((timeSlot) => (
-                <div key={timeSlot} className="grid grid-cols-5 border-b hover:bg-slate-50/50 transition-colors">
+              <div key={timeSlot} className="grid grid-cols-5 border-b hover:bg-sky-50/40 transition-colors">
                 <div className="p-3 border-r text-sm text-slate-500 font-mono">{timeSlot}</div>
                 {bays.map((bay) => {
                     const appointment = getAppointmentAtTime(bay, timeSlot);
                     const statusInfo = appointment ? getServiceStatus(appointment.time) : null;
 
                     return (
-                <div key={bay.id} className="p-2 border-r min-h-[90px] relative"> 
+                <div key={bay.id} className="p-2 border-r min-h-[90px] relative bg-white/70"> 
                         {appointment && statusInfo && (
                   <div className={`rounded-md p-2.5 text-xs h-full shadow-sm border flex flex-col justify-between transition-all hover:shadow-md ${
                             appointment.status === 'auto-scheduled' ? 'bg-green-50 border-green-200 text-green-900' :

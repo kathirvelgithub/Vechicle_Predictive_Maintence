@@ -1,6 +1,7 @@
 import json
 import os
 import traceback
+from threading import Lock
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
@@ -8,6 +9,7 @@ from datetime import datetime, timezone
 from database import supabase, execute_query  # ✅ DB Client
 from app.services.live_stream import stream_manager
 from app.domain.diagnosis_rules import generate_rule_based_diagnosis
+from app.domain.risk_scoring import calculate_hybrid_risk_score
 from app.config.settings import is_email_confirmation_vehicle, is_sms_pilot_vehicle
 from app.api.routes_scheduling import ensure_customer_confirmation_from_risk_event
 from app.services.email_gateway import normalize_email, send_email
@@ -21,6 +23,47 @@ except ImportError:
     master_agent = None
 
 router = APIRouter()
+
+_AGENT_METRICS_LOCK = Lock()
+_AGENT_RUNTIME_METRICS: Dict[str, Any] = {
+    "total_runs": 0,
+    "route_counts": {
+        "observe_only": 0,
+        "diagnosis_only": 0,
+        "full_pipeline": 0,
+        "unknown": 0,
+    },
+    "verification_counts": {
+        "passed": 0,
+        "warning": 0,
+        "blocked": 0,
+        "unknown": 0,
+    },
+    "human_review_required_runs": 0,
+    "bookings_created_runs": 0,
+    "fallback_runs": 0,
+    "last_updated_at": None,
+}
+
+
+def _record_agent_metrics(result: Dict[str, Any]) -> None:
+    route = str(result.get("orchestration_route") or "unknown").strip().lower()
+    verification = str(result.get("verification_status") or "unknown").strip().lower()
+    has_fallback = bool(str(result.get("fallback_reason") or "").strip())
+    needs_review = bool(result.get("requires_human_review") or False)
+    booking_created = bool(str(result.get("booking_id") or "").strip())
+
+    with _AGENT_METRICS_LOCK:
+        _AGENT_RUNTIME_METRICS["total_runs"] += 1
+        _AGENT_RUNTIME_METRICS["route_counts"][route if route in _AGENT_RUNTIME_METRICS["route_counts"] else "unknown"] += 1
+        _AGENT_RUNTIME_METRICS["verification_counts"][verification if verification in _AGENT_RUNTIME_METRICS["verification_counts"] else "unknown"] += 1
+        if has_fallback:
+            _AGENT_RUNTIME_METRICS["fallback_runs"] += 1
+        if needs_review:
+            _AGENT_RUNTIME_METRICS["human_review_required_runs"] += 1
+        if booking_created:
+            _AGENT_RUNTIME_METRICS["bookings_created_runs"] += 1
+        _AGENT_RUNTIME_METRICS["last_updated_at"] = datetime.utcnow().isoformat()
 
 
 def _read_positive_int_env(name: str, default: int) -> int:
@@ -134,6 +177,10 @@ class AnalyzeResponse(BaseModel):
     vehicle_id: str
     risk_score: int
     risk_level: str
+    rule_risk_score: Optional[int] = None
+    rule_risk_level: Optional[str] = None
+    ml_risk_score: Optional[int] = None
+    risk_model_used: Optional[str] = None
     diagnosis: str
     diagnosis_source: Optional[str] = None
     fallback_reason: Optional[str] = None
@@ -146,6 +193,13 @@ class AnalyzeResponse(BaseModel):
     route_reason: Optional[str] = None
     execution_started_at: Optional[str] = None
     execution_finished_at: Optional[str] = None
+    execution_plan: Optional[Dict[str, Any]] = None
+    plan_confidence: Optional[float] = None
+    verification_status: Optional[str] = None
+    verification_notes: Optional[List[str]] = Field(default_factory=list)
+    requires_human_review: bool = False
+    escalation_reason: Optional[str] = None
+    escalation_level: Optional[str] = None
     node_statuses: Optional[Dict[str, str]] = Field(default_factory=dict)
     node_latency_ms: Optional[Dict[str, int]] = Field(default_factory=dict)
     model_used_by_node: Optional[Dict[str, str]] = Field(default_factory=dict)
@@ -360,6 +414,34 @@ def _build_telematics_payload(request: PredictiveRequest) -> Dict[str, Any]:
     return payload
 
 
+def _ensure_risk_breakdown(
+    result: Dict[str, Any],
+    telematics_payload: Dict[str, Any],
+) -> Dict[str, Any]:
+    safe_result = dict(result or {})
+    breakdown_keys = ("rule_risk_score", "rule_risk_level", "ml_risk_score", "risk_model_used")
+    needs_breakdown = any(safe_result.get(key) is None for key in breakdown_keys)
+
+    if not needs_breakdown:
+        return safe_result
+
+    try:
+        assessment = calculate_hybrid_risk_score(safe_result.get("telematics_data") or telematics_payload)
+    except Exception:
+        return safe_result
+
+    if safe_result.get("rule_risk_score") is None:
+        safe_result["rule_risk_score"] = assessment.get("rule_score")
+    if safe_result.get("rule_risk_level") is None:
+        safe_result["rule_risk_level"] = assessment.get("rule_level")
+    if safe_result.get("ml_risk_score") is None:
+        safe_result["ml_risk_score"] = assessment.get("ml_score")
+    if safe_result.get("risk_model_used") is None:
+        safe_result["risk_model_used"] = assessment.get("risk_model_used")
+
+    return safe_result
+
+
 def _to_analyze_response(result: Dict[str, Any], request_vehicle_id: str) -> AnalyzeResponse:
     ueba_list = []
     if result.get("ueba_alert_triggered"):
@@ -369,6 +451,10 @@ def _to_analyze_response(result: Dict[str, Any], request_vehicle_id: str) -> Ana
         vehicle_id=result.get("vehicle_id", request_vehicle_id),
         risk_score=result.get("risk_score", 0),
         risk_level=str(result.get("risk_level", "UNKNOWN")).upper(),
+        rule_risk_score=result.get("rule_risk_score"),
+        rule_risk_level=result.get("rule_risk_level"),
+        ml_risk_score=result.get("ml_risk_score"),
+        risk_model_used=result.get("risk_model_used"),
         diagnosis=result.get("diagnosis_report", "No diagnosis generated."),
         diagnosis_source=result.get("diagnosis_source"),
         fallback_reason=result.get("fallback_reason"),
@@ -381,6 +467,13 @@ def _to_analyze_response(result: Dict[str, Any], request_vehicle_id: str) -> Ana
         route_reason=result.get("route_reason"),
         execution_started_at=result.get("execution_started_at"),
         execution_finished_at=result.get("execution_finished_at"),
+        execution_plan=result.get("execution_plan"),
+        plan_confidence=result.get("plan_confidence"),
+        verification_status=result.get("verification_status"),
+        verification_notes=result.get("verification_notes") or [],
+        requires_human_review=bool(result.get("requires_human_review") or False),
+        escalation_reason=result.get("escalation_reason"),
+        escalation_level=result.get("escalation_level"),
         node_statuses=result.get("node_statuses", {}),
         node_latency_ms=result.get("node_latency_ms", {}),
         model_used_by_node=result.get("model_used_by_node", {}),
@@ -569,6 +662,15 @@ async def predict_failure(request: PredictiveRequest):
             "node_statuses": {},
             "node_latency_ms": {},
             "model_used_by_node": {},
+            "execution_plan": None,
+            "plan_confidence": None,
+            "verification_status": None,
+            "verification_notes": [],
+            "requires_human_review": False,
+            "historical_context": None,
+            "memory_context_summary": None,
+            "escalation_reason": None,
+            "escalation_level": None,
             "vehicle_id": request.vehicle_id,
             "vin": None,
             "vehicle_metadata": metadata,
@@ -624,6 +726,12 @@ async def predict_failure(request: PredictiveRequest):
                 telematics_payload=telematics_payload,
             )
 
+        result = _ensure_risk_breakdown(
+            result=result,
+            telematics_payload=telematics_payload,
+        )
+        _record_agent_metrics(result)
+
         try:
             persist_analysis_outputs(request, result)
             print(f"☁️ [DB] Synced AI Analysis for {request.vehicle_id}")
@@ -664,4 +772,31 @@ async def predict_failure(request: PredictiveRequest):
             request=request,
             fallback_reason=f"predictive_endpoint_failed:{e.__class__.__name__}",
         )
+        _record_agent_metrics(fallback_result)
         return _to_analyze_response(fallback_result, request.vehicle_id)
+
+
+@router.get("/metrics/agent-quality")
+async def get_agent_quality_metrics():
+    with _AGENT_METRICS_LOCK:
+        snapshot = json.loads(json.dumps(_AGENT_RUNTIME_METRICS))
+
+    total_runs = int(snapshot.get("total_runs") or 0)
+    if total_runs > 0:
+        snapshot["rates"] = {
+            "fallback_rate": round((snapshot.get("fallback_runs", 0) / total_runs) * 100, 2),
+            "human_review_rate": round((snapshot.get("human_review_required_runs", 0) / total_runs) * 100, 2),
+            "booking_created_rate": round((snapshot.get("bookings_created_runs", 0) / total_runs) * 100, 2),
+        }
+    else:
+        snapshot["rates"] = {
+            "fallback_rate": 0.0,
+            "human_review_rate": 0.0,
+            "booking_created_rate": 0.0,
+        }
+
+    return {
+        "status": "ok",
+        "window": "runtime_since_process_start",
+        "metrics": snapshot,
+    }

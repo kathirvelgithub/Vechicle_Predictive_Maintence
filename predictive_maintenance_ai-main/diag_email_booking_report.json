@@ -1,17 +1,17 @@
 {
-  "timestamp_utc": "2026-03-16T17:31:25.002621+00:00",
+  "timestamp_utc": "2026-04-08T06:12:37.405125+00:00",
   "api_base": "http://localhost:8000",
   "decision": "yes",
   "target": {
-    "recommendation_id": "RCM-C918CE57",
-    "vehicle_id": "V-303",
+    "recommendation_id": "RCM-5A1F7DFE",
+    "vehicle_id": "V-301",
     "status": "pending_customer_confirmation",
     "booking_id": null,
-    "recommended_start": "2026-03-17 09:00:00",
+    "recommended_start": "2026-12-31 09:00:00",
     "customer_confirmation_status": "pending",
     "email_request_status": "pending",
-    "email_requested_at": "2026-03-16 23:00:50.829193",
-    "email_expires_at": "2026-03-17 17:30:50.754865",
+    "email_requested_at": "2026-04-08 11:42:07.869635",
+    "email_expires_at": "2026-04-09 06:12:07.816947",
     "email_address": "codedeveloper2004@gmail.com"
   },
   "before": {
@@ -19,8 +19,8 @@
     "booking": null
   },
   "request": {
-    "recommendation_id": "RCM-C918CE57",
-    "confirmation_code": "148226",
+    "recommendation_id": "RCM-5A1F7DFE",
+    "confirmation_code": "165412",
     "decision": "yes",
     "recipient_email": "codedeveloper2004@gmail.com"
   },
@@ -29,40 +29,40 @@
     "status_code": 200,
     "response": {
       "status": "booked",
-      "booking_id": "BK-DBF9120C",
+      "booking_id": "BK-FFC6EEB9",
       "recommendation": {
-        "recommendation_id": "RCM-C918CE57",
-        "vehicle_id": "V-303",
-        "recommended_start": "2026-03-17T09:00:00",
+        "recommendation_id": "RCM-5A1F7DFE",
+        "vehicle_id": "V-301",
+        "recommended_start": "2026-12-31T09:00:00",
         "estimated_duration_hours": 2.0,
         "service_type": "repair",
         "priority": "high",
-        "risk_score": 45,
-        "reason": "Check coolant level and condition, and inspect radiator and hoses for leaks to address potential overheating causes.",
+        "risk_score": 89,
+        "reason": "live verify yes->book no-db",
         "status": "booked",
-        "recipient": "maintenance.automation@fleet.local",
-        "suggested_by": "predictive-high-risk-auto",
-        "approver_email": "risk.automation@fleet.local",
-        "approved_at": "2026-03-16T23:00:50.910751",
-        "booking_id": "BK-DBF9120C",
+        "recipient": "maintenance.manager@fleet.local",
+        "suggested_by": "live-verify",
+        "approver_email": "qa.live@fleet.local",
+        "approved_at": "2026-04-08T11:42:07.923847",
+        "booking_id": "BK-FFC6EEB9",
         "customer_confirmation_status": "confirmed",
         "customer_confirmation_method": "email",
         "customer_confirmation_email": "codedeveloper2004@gmail.com",
         "customer_confirmation_phone": null,
-        "customer_confirmation_requested_at": "2026-03-16T23:00:50.910751",
-        "customer_confirmation_confirmed_at": "2026-03-16T23:01:28.021339",
+        "customer_confirmation_requested_at": "2026-04-08T11:42:07.923847",
+        "customer_confirmation_confirmed_at": "2026-04-08T11:42:40.075842",
         "customer_confirmation_declined_at": null,
-        "customer_confirmation_reference": "RCM-C918CE57-DA20F2",
-        "created_at": "2026-03-16T23:00:45.194154",
-        "updated_at": "2026-03-16T23:01:28.021339"
+        "customer_confirmation_reference": "RCM-5A1F7DFE-3D19F7",
+        "created_at": "2026-04-08T11:42:00.823946",
+        "updated_at": "2026-04-08T11:42:40.075842"
       },
       "notification": {
-        "id": "d198704b-2270-4349-97b3-eb724cb40b46",
-        "vehicle_id": "V-303",
+        "id": "9e00a9cc-484d-4d66-8993-937af2787d89",
+        "vehicle_id": "V-301",
         "notification_type": "booking_confirmed",
-        "title": "Booking confirmed for V-303",
-        "message": "Customer confirmed recommendation RCM-C918CE57 by email. Booking BK-DBF9120C is confirmed for 2026-03-17T09:00:00.",
-        "sent_at": "2026-03-16T23:01:28.130751",
+        "title": "Booking confirmed for V-301",
+        "message": "Customer confirmed recommendation RCM-5A1F7DFE by email. Booking BK-FFC6EEB9 is confirmed for 2026-12-31T09:00:00.",
+        "sent_at": "2026-04-08T11:42:40.165485",
         "channel": "email",
         "recipient": "codedeveloper2004@gmail.com",
         "read": false,
@@ -71,7 +71,7 @@
       "email_confirmation": {
         "status": "sent",
         "provider": "gmail-smtp",
-        "provider_message_id": "<a1276acb5bc64ce796a08a31534dcc17@gmail-smtp.local>",
+        "provider_message_id": "<37b8b0df27254be1bcc6290f8b545231@gmail-smtp.local>",
         "error": null,
         "simulated": false
       },
@@ -80,29 +80,29 @@
   },
   "after": {
     "recommendation": {
-      "recommendation_id": "RCM-C918CE57",
-      "vehicle_id": "V-303",
+      "recommendation_id": "RCM-5A1F7DFE",
+      "vehicle_id": "V-301",
       "status": "booked",
-      "booking_id": "BK-DBF9120C",
+      "booking_id": "BK-FFC6EEB9",
       "customer_confirmation_status": "confirmed",
       "customer_confirmation_method": "email",
       "customer_confirmation_email": "codedeveloper2004@gmail.com",
-      "customer_confirmation_confirmed_at": "2026-03-16 23:01:28.021339",
+      "customer_confirmation_confirmed_at": "2026-04-08 11:42:40.075842",
       "customer_confirmation_declined_at": null,
-      "updated_at": "2026-03-16 23:01:28.021339"
+      "updated_at": "2026-04-08 11:42:40.075842"
     },
-    "booking_lookup_id": "BK-DBF9120C",
+    "booking_lookup_id": "BK-FFC6EEB9",
     "booking_exists": true,
     "booking": {
-      "booking_id": "BK-DBF9120C",
-      "vehicle_id": "V-303",
-      "scheduled_date": "2026-03-17 09:00:00",
+      "booking_id": "BK-FFC6EEB9",
+      "vehicle_id": "V-301",
+      "scheduled_date": "2026-12-31 09:00:00",
       "service_type": "repair",
       "estimated_duration_hours": "2.00",
       "status": "confirmed",
       "priority": "high",
-      "created_at": "2026-03-16 23:01:27.903931",
-      "updated_at": "2026-03-16 23:01:27.903931"
+      "created_at": "2026-04-08 11:42:39.975219",
+      "updated_at": "2026-04-08 11:42:39.975219"
     }
   }
 }

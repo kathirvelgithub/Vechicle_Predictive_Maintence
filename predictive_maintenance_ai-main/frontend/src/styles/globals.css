@@ -1,26 +1,28 @@
 @custom-variant dark (&:is(.dark *));
 
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
 :root {
   --font-size: 16px;
-  --background: #ffffff;
+  --background: #f6f9fc;
   --foreground: oklch(0.145 0 0);
   --card: #ffffff;
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
-  --primary: #030213;
+  --primary: #0f766e;
   --primary-foreground: oklch(1 0 0);
-  --secondary: oklch(0.95 0.0058 264.53);
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #e9ebef;
-  --accent-foreground: #030213;
+  --secondary: #e6f4f2;
+  --secondary-foreground: #0f172a;
+  --muted: #eef3f8;
+  --muted-foreground: #64748b;
+  --accent: #dbeafe;
+  --accent-foreground: #0f172a;
   --destructive: #d4183d;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: rgba(15, 23, 42, 0.1);
   --input: transparent;
-  --input-background: #f3f3f5;
+  --input-background: #f3f7fb;
   --switch-background: #cbced4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
@@ -30,15 +32,19 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
+  --radius: 0.85rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: #030213;
+  --sidebar-primary: #0f172a;
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.97 0 0);
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --brand-1: #0f766e;
+  --brand-2: #0ea5e9;
+  --brand-3: #22c55e;
+  --surface-shadow: 0 18px 45px rgba(14, 165, 233, 0.2);
 }
 
 .dark {
@@ -126,8 +132,158 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', 'Segoe UI', sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(14, 165, 233, 0.12) 0%, transparent 45%),
+      radial-gradient(circle at 90% 0%, rgba(34, 197, 94, 0.12) 0%, transparent 38%),
+      linear-gradient(180deg, #f9fbff 0%, #f2f7fb 100%);
+    background-size: 140% 140%;
+    animation: pageFadeIn 0.5s ease-out, gradientShift 14s ease-in-out infinite;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: 'Sora', 'Plus Jakarta Sans', sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+@layer base {
+  ::selection {
+    background: rgba(14, 165, 233, 0.22);
+    color: #0f172a;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: rgba(148, 163, 184, 0.15);
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #14b8a6, #0ea5e9);
+    border-radius: 999px;
+  }
+}
+
+@keyframes pageFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gradientShift {
+  0%,
+  100% {
+    background-position: 0% 20%;
+  }
+  50% {
+    background-position: 100% 80%;
+  }
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.96) rotateX(6deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateX(0deg);
+  }
+}
+
+@keyframes softFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes glowPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(14, 165, 233, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(14, 165, 233, 0.08);
+  }
+}
+
+@layer components {
+  [data-slot='card'] {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 251, 255, 0.95) 100%);
+    backdrop-filter: blur(4px);
+    box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05);
+    transform-style: preserve-3d;
+    transition: transform 320ms cubic-bezier(0.2, 0.9, 0.2, 1), box-shadow 320ms ease, border-color 320ms ease;
+    animation: glowPulse 4s ease-in-out infinite;
+  }
+
+  [data-slot='card']:hover {
+    transform: translateY(-10px) scale(1.015) rotateX(2deg) rotateY(-1deg);
+    border-color: rgba(14, 165, 233, 0.35);
+    box-shadow: var(--surface-shadow);
+  }
+
+  .grid > [data-slot='card'] {
+    animation: riseIn 0.75s cubic-bezier(0.12, 0.72, 0.18, 1) both;
+  }
+
+  .grid > [data-slot='card']:nth-child(2) {
+    animation-delay: 0.05s;
+  }
+
+  .grid > [data-slot='card']:nth-child(3) {
+    animation-delay: 0.1s;
+  }
+
+  .grid > [data-slot='card']:nth-child(4) {
+    animation-delay: 0.15s;
+  }
+
+  [data-slot='button'] {
+    transition: transform 220ms ease, box-shadow 240ms ease, filter 220ms ease;
+  }
+
+  [data-slot='button']:hover {
+    transform: translateY(-3px) scale(1.02);
+    filter: saturate(1.12) brightness(1.02);
+    box-shadow: 0 10px 22px rgba(14, 165, 233, 0.24);
+  }
+
+  [data-slot='button']:active {
+    transform: translateY(0) scale(0.99);
+  }
+
+  .animate-pulse {
+    animation: softFloat 1.8s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -36,13 +36,12 @@ const DEFAULT_SETTINGS: UiSettings = {
   apiBaseOverride: getRuntimeApiBase() || "",
 };
 
-const VIEW_ITEMS: Array<{ key: ViewKey; label: string; symbol: string }> = [
-  { key: "dashboard", label: "Dashboard", symbol: "01" },
-  { key: "inbox", label: "Approval Inbox", symbol: "02" },
-  { key: "calendar", label: "Booking Calendar", symbol: "03" },
-  { key: "notifications", label: "Notification Center", symbol: "04" },
-  { key: "vehicles", label: "Vehicle Quick Panel", symbol: "05" },
-  { key: "settings", label: "Settings", symbol: "06" },
+const VIEW_ITEMS: Array<{ key: ViewKey; label: string }> = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "inbox", label: "Approval Inbox" },
+  { key: "calendar", label: "Booking Calendar" },
+  { key: "notifications", label: "Notification Center" },
+  { key: "vehicles", label: "Vehicle Quick Panel" },
 ];
 
 const STATUS_BADGE_CLASS: Record<string, string> = {
@@ -396,6 +395,41 @@ const App = () => {
     [decisionNotes, refreshAll, settings.approverEmail],
   );
 
+  const handlePendingAdminAction = useCallback(
+    async (recommendationId: string, action: "force_book" | "cancel_pending") => {
+      setBusyRecommendationId(recommendationId);
+      setFeedback(null);
+
+      try {
+        const notes = decisionNotes[recommendationId] || "";
+        const approver = settings.approverEmail.trim() || undefined;
+
+        if (action === "force_book") {
+          const result = await api.adminForceBookRecommendation(recommendationId, approver, notes);
+          const message =
+            result.status === "booked"
+              ? `Force-booked ${recommendationId}. Booking ${result.booking_id || "generated"} confirmed.`
+              : `Force-book action returned status: ${prettyText(result.status)}.`;
+          setFeedback({ kind: "success", text: message });
+        } else {
+          const result = await api.adminCancelPendingRecommendation(recommendationId, approver, notes);
+          setFeedback({
+            kind: "info",
+            text: `Cancelled pending confirmation for ${recommendationId}. Status: ${prettyText(result.status)}.`,
+          });
+        }
+
+        await refreshAll(false);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Admin action failed";
+        setFeedback({ kind: "error", text: message });
+      } finally {
+        setBusyRecommendationId(null);
+      }
+    },
+    [decisionNotes, refreshAll, settings.approverEmail],
+  );
+
   const handleNotificationRead = useCallback(
     async (notificationId: string) => {
       try {
@@ -474,7 +508,6 @@ const App = () => {
               className={`view-tab ${activeView === item.key ? "active" : ""}`}
               onClick={() => setActiveView(item.key)}
             >
-              <span className="view-index">{item.symbol}</span>
               <span>{item.label}</span>
             </button>
           ))}
@@ -693,6 +726,31 @@ const App = () => {
                       >
                         Reject
                       </button>
+                      {status === "pending_customer_confirmation" ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              void handlePendingAdminAction(recommendation.recommendation_id, "force_book")
+                            }
+                            title="Emergency override: force booking without waiting for customer reply"
+                          >
+                            Force Book (Admin)
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            disabled={busy}
+                            onClick={() =>
+                              void handlePendingAdminAction(recommendation.recommendation_id, "cancel_pending")
+                            }
+                            title="Cancel the pending customer confirmation request"
+                          >
+                            Cancel Pending
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   </article>
                 );

@@ -1,636 +1,335 @@
-# 🔧 Predictive Maintenance AI — Multi-Agent Fleet Intelligence Platform
+﻿# Predictive Maintenance AI Platform
 
-An end-to-end **AI-powered predictive maintenance system** for vehicle fleet management, built with a **LangGraph multi-agent pipeline**, **FastAPI** backend, **React + TypeScript** dashboard, and **Spring Boot** auth service. The platform ingests real-time IoT telematics via MQTT, performs AI-driven risk analysis and diagnosis using **Groq (Llama 3.3 70B)**, and automates customer engagement, service scheduling, and manufacturing feedback — all secured by a **UEBA (User & Entity Behavior Analytics)** policy engine.
+Production-oriented fleet intelligence platform built with a multi-node AI workflow, real-time telemetry ingestion, and human-in-the-loop service booking.
 
----
+## Table Of Contents
 
-## 📑 Table of Contents
+1. Overview
+2. Core Features
+3. Phase 2 Agent Upgrades
+4. Architecture
+5. Repository Structure
+6. Technology Stack
+7. Quick Start
+8. Configuration
+9. API Reference
+10. Agent Workflow
+11. Validation And Testing
+12. Troubleshooting
+13. Contributing
+14. Documentation
+15. License
 
-- [Architecture Overview](#architecture-overview)
-- [Tech Stack](#tech-stack)
-- [AI Agent Pipeline](#ai-agent-pipeline)
-- [Data Flow](#data-flow)
-- [Project Structure](#project-structure)
-- [Features](#features)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Backend Setup](#backend-setup)
-  - [Frontend Setup](#frontend-setup)
-  - [Auth Service Setup](#auth-service-setup)
-  - [IoT Listener (Optional)](#iot-listener-optional)
-  - [Fleet Simulator (Optional)](#fleet-simulator-optional)
-- [Environment Variables](#environment-variables)
-- [API Endpoints](#api-endpoints)
-- [Security — UEBA](#security--ueba)
-- [Knowledge Base (RAG)](#knowledge-base-rag)
+## Overview
 
----
+This project combines:
 
-## Architecture Overview
+- FastAPI backend for telemetry processing and orchestration
+- LangGraph agent workflow for diagnosis, planning, verification, and action
+- PostgreSQL persistence for vehicle telemetry, recommendations, bookings, and notifications
+- Multiple UI clients for operations and simulation
+- Spring Boot auth service for identity-related integrations
 
-```
-┌──────────────┐    MQTT     ┌──────────────┐          ┌───────────────┐
-│  IoT Sensors │───────────▶│ IoT Listener  │────────▶│  PostgreSQL   │
-│  (Wokwi/HW) │            │ (iot_listener) │         │  (PostgreSQL) │
-└──────────────┘            └──────────────┘          └───────┬───────┘
-                                                              │
-┌──────────────┐   HTTP POST  ┌──────────────┐                │
-│    Fleet     │────────────▶│   FastAPI     │◄──────────────┘
-│  Simulator   │              │  Backend:8000 │
-└──────────────┘              └──────┬───────┘
-                                     │  master_agent.invoke()
-                                     ▼
-                          ┌──────────────────────┐
-                          │  LangGraph Pipeline  │
-                          │  (7 AI Agent Nodes)  │
-                          └──────────┬───────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-             ┌───────────┐  ┌──────────────┐  ┌───────────┐
-             │ Groq LLM  │  │ Knowledge    │  │   gTTS    │
-             │ Llama 3.3 │  │ Base (RAG)   │  │  (Voice)  │
-             └───────────┘  └──────────────┘  └───────────┘
-                                     │
-                                     ▼
-                          ┌──────────────────────┐
-                          │   React + TS         │
-                          │   Dashboard :5173    │
-                          └──────────┬───────────┘
-                                     │
-                          ┌──────────────────────┐
-                          │  Spring Boot Auth    │
-                          │  Service :8080       │
-                          └──────────────────────┘
-```
+Primary goal: convert telemetry into reliable maintenance decisions while preventing unsafe auto-booking through explicit customer confirmation.
 
----
+## Core Features
 
+- Real-time telemetry ingestion and risk scoring
+- Agentic diagnosis with LLM gateway fallback policy
+- Recommendation and approval workflow for scheduling
+- Email and SMS customer confirmation paths
+- Booking creation only after explicit YES confirmation
+- Voice interaction path for critical scenarios
+- Manufacturing insight generation for downstream engineering feedback
+- Runtime agent quality metrics endpoint
 
-## Tech Stack
+## Phase 2 Agent Upgrades
 
-| Layer | Technology |
-|---|---|
-| **AI Agent Orchestration** | LangGraph (StateGraph) · LangChain · Groq (Llama 3.3 70B) |
-| **Backend API** | FastAPI · Uvicorn · Python 3.11+ |
-| **Database** | PostgreSQL (local or managed) |
-| **IoT Ingestion** | MQTT (Paho) via public Mosquitto broker |
-| **Auth Service** | Spring Boot 4 · Java 21 · JWT · Google OAuth2 · SQLite |
-| **Frontend** | React 18 · TypeScript · Vite · Tailwind CSS · Radix UI · Recharts |
-| **Voice Synthesis** | gTTS (Google Text-to-Speech) |
-| **Knowledge Base** | JSON-based RAG (Retrieval-Augmented Generation) |
-| **Security** | UEBA policy engine with agent-level access control |
+Implemented upgrades include:
 
----
+- Memory context retrieval before diagnosis
+- Planner node for explicit per-run execution planning
+- Verifier node with guardrails and confidence-based escalation
+- Runtime observability metrics for quality tracking
 
-## AI Agent Pipeline
+Phase 2 files:
 
-The system uses **LangGraph's StateGraph** to orchestrate a **7-node sequential pipeline**. All nodes share an `AgentState` TypedDict, creating a clean data pipeline where each node reads and writes specific state fields.
+- [app/agents/nodes/memory_context.py](app/agents/nodes/memory_context.py)
+- [app/agents/nodes/planner.py](app/agents/nodes/planner.py)
+- [app/agents/nodes/verifier.py](app/agents/nodes/verifier.py)
+- [app/agents/master.py](app/agents/master.py)
+- [app/agents/state.py](app/agents/state.py)
 
-```
-START
-  │
-  ▼
-┌─────────────────────┐  Query PostgreSQL for vehicle + owner + telematics
-│  1. Data Analysis   │  Run rule-based risk scoring engine
-│                     │  Output: risk_score, risk_level, detected_issues
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  Groq LLM + RAG from knowledge_base.json
-│  2. Diagnosis       │  Root cause analysis + action plan + severity
-│                     │  Output: diagnosis_report, priority_level
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  LLM drafts customer SMS/notification
-│  3. Customer Eng.   │  Auto-authorizes Critical; simulates user "YES"
-│                     │  Output: customer_script, customer_decision
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  Generates voice transcript (Critical only)
-│  4. Voice Agent     │  gTTS converts AI dialogue to MP3 audio
-│                     │  Output: voice_transcript, audio_url
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  Smart slot finder with collision detection
-│  5. Scheduling      │  UEBA-secured booking (09:00-17:00 slots)
-│                     │  Output: booking_id
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  Post-service satisfaction follow-up
-│  6. Feedback        │  Output: feedback message
-└─────────┬───────────┘
-          ▼
-┌─────────────────────┐  CAPA engineering report (skips Low priority)
-│  7. Manufacturing   │  Flaw analysis + engineering fix + validation
-│                     │  Output: manufacturing_recommendations
-└─────────┬───────────┘
-          ▼
-         END
-```
+## Architecture
 
-### Risk Scoring Engine
+High-level flow:
 
-The rule-based engine in `risk_rules.py` calculates a 0–100 risk score:
+1. Telematics data arrives from simulator or external producer.
+2. Backend normalizes and scores risk signals.
+3. Agent graph executes analysis and decision workflow.
+4. Recommendations and notifications are persisted.
+5. Customer confirmation gates booking creation.
+6. Metrics and events are exposed for monitoring.
 
-| Condition | Points |
-|---|---|
-| Engine temp > 110°C | +40 |
-| Oil pressure < 20 psi | +50 |
-| Active DTC codes | +30 |
+Key entrypoints:
 
-| Score Range | Risk Level |
-|---|---|
-| 0–19 | LOW |
-| 20–39 | MEDIUM |
-| 40–74 | HIGH |
-| 75–100 | CRITICAL |
+- Backend app: [app/main.py](app/main.py)
+- Predictive routes: [app/api/routes_predictive.py](app/api/routes_predictive.py)
+- Scheduling routes: [app/api/routes_scheduling.py](app/api/routes_scheduling.py)
 
----
+## Repository Structure
 
-## Data Flow
+- [app](app): FastAPI APIs, agent workflow, services, domain logic
+- [database](database): PostgreSQL initialization scripts
+- [scripts](scripts): smoke tests, diagnostic and maintenance utilities
+- [tests](tests): automated tests
+- [frontend](frontend): Vite React frontend
+- [service_center_ui](service_center_ui): service center React UI
+- [admin_ui](admin_ui): admin React UI
+- [auth-service](auth-service): Spring Boot auth service
+- [Simulation](../Simulation): Next.js simulation environment
 
-```
-IoT Sensors ──MQTT──▶ iot_listener.py ──▶ PostgreSQL (telematics_logs)
-                                                │
-fleet_simulator.py ──HTTP POST──────────▶ routes_predictive.py
-                                                │
-                                                ▼
-                                         master_agent.invoke()
-                                                │
-                               ┌────────────────┴────────────────┐
-                               ▼                                 ▼
-                    PostgreSQL Read                   Knowledge Base RAG
-                     (vehicles + owners +             (knowledge_base.json)
-                      telematics_logs)                       │
-                               │                             ▼
-                               ▼                        Groq LLM
-                          Risk Rules                   (Diagnosis)
-                               │                             │
-                               └──────────┬──────────────────┘
-                                          ▼
-                                  Customer Notification
-                                          ▼
-                                  Voice Call (Critical)
-                                          ▼
-                                  Auto-Scheduling
-                                          ▼
-                                  Feedback + CAPA
-                                          ▼
-                            PostgreSQL Write (results persist)
-                                          ▼
-                             React Dashboard (real-time view)
-```
+## Technology Stack
 
-### Escalation + Diagnosis Sequence
+Backend:
 
-```mermaid
-sequenceDiagram
-        participant Sim as Fleet Simulator
-        participant API as FastAPI /api/telematics
-        participant RT as routes_telematics
-        participant AD as anomaly_detector
-        participant EQ as escalation_queue
-        participant W as Escalation Worker
-        participant M as master_agent (LangGraph)
-        participant S as supervisor node
-        participant D as diagnosis node
-        participant LG as llm_gateway
-        participant LLM as Groq LLM
-        participant DB as PostgreSQL
-        participant WS as stream_manager
+- FastAPI, Uvicorn, Pydantic
+- LangGraph, LangChain, langchain-openai compatible clients
+- PostgreSQL via psycopg2 and SQLAlchemy
+- XGBoost and scikit-learn for risk modeling
 
-        Sim->>API: POST telemetry batch
-        API->>RT: ingest_telematics(payload)
-        RT->>AD: evaluate_telematics_anomaly(vehicle_id, telematics)
-        AD-->>RT: risk_score + risk_level + anomaly_level
-        RT->>DB: insert telematics_logs
-        RT->>DB: upsert vehicle_live_state
-        RT->>WS: broadcast telemetry.latest
+LLM gateway:
 
-        alt anomaly_level is HIGH or CRITICAL
-                RT->>EQ: enqueue escalation job
-                EQ->>W: dequeue job
-                W->>M: master_agent.invoke(initial_state)
-                M->>S: choose orchestration_route
-                S->>D: run diagnosis when route requires it
-                D->>LG: invoke_with_policy(prompt, profile="diagnosis")
-                LG->>LLM: request with retry/fallback policy
-                LLM-->>LG: diagnosis content
-                LG-->>D: content + model_used
-                Note right of D: diagnosis updates AgentState\n(diagnosis_report, priority_level)
-                D-->>M: updated shared state
-                W->>DB: persist analysis outputs
-                W->>WS: broadcast analysis.completed
-        else anomaly_level is NORMAL or WATCH
-                Note over RT,WS: telemetry is streamed, no escalation worker execution
-        end
-```
+- Provider-aware model policy with retries and timeout controls
+- Groq, OpenAI-compatible endpoints, optional Ollama
 
-This means diagnosis does not call master directly. The master graph orchestrates diagnosis and then consumes the diagnosis fields from shared `AgentState`.
+Frontend:
 
----
+- React + Vite (multiple UIs)
+- Next.js simulation app
 
-## Scheduling Alert And Approval Flow
+Auth service:
 
-The scheduling system now supports a recommendation-first workflow with explicit approval before booking.
+- Spring Boot 3.3.x, Java 21, JWT and OAuth dependencies
 
-### End-to-End Flow
+## Quick Start
 
-1. A recommendation is created for a vehicle with a suggested slot, duration, and priority.
-2. Backend persists the recommendation in `service_recommendations` with status `recommended`.
-3. Backend creates a notification record (`approval_required`) for the target recipient.
-4. Backend emits live stream events:
-         - `scheduling.recommendation.created`
-         - `notification.created`
-5. Frontend shows the item in Scheduling Approval Inbox and Header notifications.
-6. Approver chooses one action:
-         - Approve: backend revalidates slot conflict, creates `service_bookings` row, updates vehicle status, and marks recommendation as `booked`.
-         - Reject: backend marks recommendation as `rejected`.
-7. Backend emits final events:
-         - `scheduling.recommendation.approved` or `scheduling.recommendation.rejected`
-         - `scheduling.booking.created` (on approve)
-
-### Core API Endpoints
-
-- `POST /api/scheduling/recommendations`
-        - Creates recommendation and sends approval notification.
-- `GET /api/scheduling/recommendations/pending`
-        - Lists recommendations waiting for approval.
-- `POST /api/scheduling/recommendations/{recommendation_id}/approve`
-        - Approves recommendation and finalizes booking.
-- `POST /api/scheduling/recommendations/{recommendation_id}/reject`
-        - Rejects recommendation.
-- `GET /api/notifications`
-        - Lists notifications with optional recipient/unread filters.
-
-### UI Surfaces
-
-- Vehicle Health panel: creates recommendation and sends approval alert.
-- Scheduling page: Approval Inbox to approve or reject pending recommendations.
-- Header bell: live notification feed backed by backend notifications table.
-
-### Phase 1 Rules
-
-- Working window: 09:00-17:00
-- Slot step: 30 minutes
-- Variable duration based on priority/service type
-- Conflict handling: revalidate at approval time and return alternative slot when occupied
-
----
-
-## Project Structure
-
-```
-predictive_maintenance_ai-main/
-│
-├── app/                          # Python backend (FastAPI + AI Agents)
-│   ├── main.py                   # FastAPI entrypoint (CORS, route registration)
-│   ├── knowledge_base.json       # 2,300+ line automotive service manual for RAG
-│   │
-│   ├── agents/                   # LangGraph multi-agent system
-│   │   ├── master.py             # StateGraph builder & compiler
-│   │   ├── state.py              # AgentState TypedDict (shared pipeline state)
-│   │   ├── tools.py              # UEBA-secured tool wrappers
-│   │   └── nodes/                # Individual agent node implementations
-│   │       ├── data_analysis.py  # Node 1: PostgreSQL query + risk scoring
-│   │       ├── diagnosis.py      # Node 2: LLM + RAG diagnosis
-│   │       ├── customer_engagement.py  # Node 3: Customer notification
-│   │       ├── voice_agent.py    # Node 4: Voice call + gTTS audio
-│   │       ├── scheduling.py     # Node 5: Smart slot booking
-│   │       ├── feedback.py       # Node 6: Post-service follow-up
-│   │       └── manufacturing_insights.py  # Node 7: CAPA report
-│   │
-│   ├── api/                      # REST API routes
-│   │   ├── routes_predictive.py  # POST /api/predictive/run (trigger AI pipeline)
-│   │   ├── routes_fleet.py       # Fleet management (status, activity, bookings)
-│   │   ├── routes_telematics.py  # GET vehicle sensor readings
-│   │   ├── routes_scheduling.py  # File-based booking (legacy)
-│   │   └── routes_notifications.py  # Placeholder
-│   │
-│   ├── config/
-│   │   └── settings.py           # Application configuration
-│   │
-│   ├── data/                     # Data access layer
-│   │   ├── iot_listener.py       # MQTT IoT bridge → PostgreSQL
-│   │   ├── loaders.py            # Mock data loader (offline fallback)
-│   │   └── repositories.py      # Local JSON data repositories
-│   │
-│   ├── domain/                   # Business logic
-│   │   ├── mapping.py            # OBD-II DTC code → description mapper
-│   │   └── risk_rules.py         # Rule-based risk scoring engine
-│   │
-│   ├── ueba/                     # Security — User & Entity Behavior Analytics
-│   │   ├── middleware.py          # secure_call() gatekeeper
-│   │   ├── policies.py           # Agent access control matrix
-│   │   ├── storage.py            # In-memory security event log
-│   │   └── anomaly.py            # Anomaly detection (extensible stub)
-│   │
-│   └── utils/
-│       └── knowledge.py          # RAG retrieval from knowledge_base.json
-│
-├── auth-service/                 # Spring Boot JWT auth microservice (Java 21)
-│   ├── pom.xml                   # Maven config (Spring Boot 4, SQLite, JWT)
-│   └── src/
-│       └── main/resources/
-│           └── application.properties  # Port 8080, JWT secret, Google OAuth
-│
-├── frontend/                     # React + TypeScript dashboard
-│   ├── package.json              # Dependencies (React 18, Radix, Recharts, MUI)
-│   ├── vite.config.ts            # Vite build configuration
-│   └── src/
-│       ├── App.tsx               # Auth-gated routing
-│       ├── services/api.ts       # Axios API client (with offline fallbacks)
-│       ├── context/AuthContext.tsx  # JWT + cookie auth context
-│       └── components/
-│           ├── auth/             # Login & Register screens
-│           ├── dashboard/        # Master dashboard (map, metrics, activity)
-│           ├── vehicle-health/   # Per-vehicle telematics gauges
-│           ├── scheduling/       # Service booking interface
-│           ├── manufacturing/    # CAPA report viewer
-│           ├── security/         # UEBA event panel
-│           └── settings/         # User/system settings
-│
-├── data_samples/                 # Sample data & run logs
-│   ├── vehicles.json             # Vehicle registry
-│   ├── telematics.json           # Static telematics snapshots
-│   ├── collected_data.json       # Aggregated fleet data
-│   └── run_log_V-*.json          # Per-vehicle run logs
-│
-├── tests/                        # Test suite
-│   ├── test_flow.py              # End-to-end pipeline test
-│   ├── test_key.py               # API key validation test
-│   └── list_models.py            # Available model lister
-│
-├── database.py                   # PostgreSQL connection module
-├── engine_data.csv               # 19,500+ rows of real engine telemetry
-├── fleet_simulator.py            # Load-testing tool (7 concurrent vehicles)
-├── requirements.txt              # Python dependencies
-└── Readme.md                     # This file
-```
-
----
-
-## Features
-
-### AI & Analytics
-- **Multi-agent AI pipeline** — 7 specialized LangGraph nodes working in sequence
-- **Groq-powered LLM inference** — Uses Llama 3.3 70B for diagnosis, customer scripts, and CAPA reports
-- **RAG-enhanced diagnosis** — 2,300+ line automotive knowledge base for contextual repair guidance
-- **Rule-based risk scoring** — Engine temp, oil pressure, and DTC code analysis (0–100 scale)
-- **OBD-II DTC mapping** — Translates fault codes (P0217, P0524, P0300, P0171) to plain English
-
-### Fleet Operations
-- **Real-time IoT ingestion** — MQTT listener bridges sensor data into PostgreSQL
-- **Fleet dashboard** — Interactive map, metrics cards, activity feed, agent status
-- **Smart scheduling** — Collision-aware slot booking with business-hours enforcement
-- **Voice alerts** — gTTS-generated MP3 voice calls for Critical-priority issues
-- **Customer engagement** — Automated SMS/notification drafting with auto-authorization
-
-### Security
-- **UEBA policy engine** — Agent-level access control matrix (who can call what)
-- **Secure middleware** — Every inter-agent call passes through `secure_call()` gatekeeper
-- **Audit logging** — All ALLOWED/BLOCKED events recorded with timestamps
-- **JWT authentication** — Spring Boot auth with 24-hour token expiry
-- **Google OAuth2** — Social login integration
-
-### Frontend
-- **Auth-gated SPA** — Login/Register → Dashboard with page navigation
-- **6 dashboard pages** — Dashboard, Vehicle Health, Scheduling, Manufacturing, Security, Settings
-- **Offline resilience** — Mock data fallbacks when backend is unreachable
-- **Modern UI** — Tailwind CSS, Radix UI primitives, Recharts visualizations, MUI components
-
----
-
-## Getting Started
-
-### Prerequisites
-
-| Tool | Version |
-|---|---|
-| **Python** | 3.11+ |
-| **Node.js** | 18+ |
-| **Java** | 21 (for auth-service) |
-| **Maven** | 3.9+ (for auth-service) |
-
-You'll also need:
-- A running **PostgreSQL** instance with schema initialized from `database/init.sql`
-- A **Groq API key** (for Llama 3.3 70B inference)
-- (Optional) A **Google OAuth Client ID** for social login
-
-### Backend Setup
+### 1. Start PostgreSQL
 
 ```bash
-# 1. Clone the repository
-git clone <repo-url>
 cd predictive_maintenance_ai-main
+docker-compose up -d
+```
 
-# 2. Create and activate virtual environment
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS/Linux
+Compose file: [docker-compose.yml](docker-compose.yml)
 
-# 3. Install Python dependencies
+### 2. Set up Python environment
+
+```bash
+cd predictive_maintenance_ai-main
+python -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
+```
 
-# 4. Create .env file in the project root
-# (See Environment Variables section below)
+Dependencies: [requirements.txt](requirements.txt)
 
-# 5. Start the FastAPI server
+### 3. Configure environment
+
+```bash
+copy .env.example .env
+```
+
+Template: [.env.example](.env.example)
+
+### 4. Run backend
+
+```bash
+cd predictive_maintenance_ai-main
 python -m app.main
 ```
 
-The backend will be running at **http://localhost:8000**.
+Health:
 
-### Frontend Setup
+- `GET /`
+- `GET /health/ready`
+
+### 5. Optional UI services
+
+Frontend:
 
 ```bash
-# 1. Navigate to the frontend directory
-cd frontend
-
-# 2. Install dependencies
+cd predictive_maintenance_ai-main/frontend
 npm install
-
-# 3. Start the development server
 npm run dev
 ```
 
-The frontend will be running at **http://localhost:5173**.
-
-### Auth Service Setup
-
-```powershell
-# 1. Navigate to the auth service directory
-cd auth-service
-
-# 2. Start Spring Boot auth service
-.\mvnw.cmd spring-boot:run
-```
-
-For macOS/Linux:
-```bash
-cd auth-service
-./mvnw spring-boot:run
-```
-
-The auth service will be running at **http://localhost:8080**.
-
-### IoT Listener (Optional)
-
-To receive real-time MQTT sensor data (e.g., from Wokwi simulations):
+Service center UI:
 
 ```bash
-python app/data/iot_listener.py
+cd predictive_maintenance_ai-main/service_center_ui
+npm install
+npm run dev
 ```
 
-This connects to `test.mosquitto.org` and listens on `hackathon/truck/+/telematics`.
-
-### Fleet Simulator (Optional)
-
-To load-test the system with 7 concurrent vehicles sending critical-condition data:
+Admin UI:
 
 ```bash
-python fleet_simulator.py
+cd predictive_maintenance_ai-main/admin_ui
+npm install
+npm run dev
 ```
 
-### Digital Twin Simulator (CARLA + SUMO Ready)
-
-Use the new unified simulator runner that supports staged integration:
+Simulation:
 
 ```bash
-python digital_twin_simulator.py --source fallback --rounds 3
+cd Simulation
+npm install
+npm run dev
 ```
 
-Source modes:
-- `fallback`: Local synthetic telemetry (works immediately)
-- `sumo`: Uses `traci` when SUMO is running
-- `carla`: Uses `carla` Python client when CARLA is running
-- `hybrid`: Attempts CARLA and SUMO, then falls back safely
-
-Examples:
+### 6. Optional auth service
 
 ```bash
-# Run with SUMO adapter (requires SUMO + traci)
-python digital_twin_simulator.py --source sumo --sumo-port 8813 --rounds 5
-
-# Run with CARLA adapter (requires CARLA server + Python API)
-python digital_twin_simulator.py --source carla --carla-host 127.0.0.1 --carla-port 2000 --rounds 5
-
-# Hybrid run with timeout control
-python digital_twin_simulator.py --source hybrid --rounds 5 --request-timeout-sec 20
-
-# Dry-run mode (no API calls, prints generated events)
-python digital_twin_simulator.py --source hybrid --rounds 1 --dry-run
-
-# Readiness check only (backend + selected source dependencies)
-python digital_twin_simulator.py --source hybrid --check-only
-
-# Force run even when backend health check fails
-python digital_twin_simulator.py --source fallback --rounds 2 --skip-health-check
-
-# Require live source readiness before running
-python digital_twin_simulator.py --source hybrid --strict-source-check --rounds 2
+cd predictive_maintenance_ai-main/auth-service
+mvnw.cmd spring-boot:run
 ```
 
-Reliability options:
-- Preflight health check is enabled by default before sending telemetry.
-- `--max-consecutive-timeouts` stops early on repeated backend timeouts (default: 4).
-- `--dry-run` is useful for validating CARLA/SUMO event generation independent of backend latency.
+Build config: [auth-service/pom.xml](auth-service/pom.xml)
 
----
+## Configuration
 
-## Environment Variables
+Core variables are defined in [.env.example](.env.example). Important groups:
 
-Create a `.env` file in the project root:
+- Database connectivity and pool controls
+- LLM provider keys and model policy
+- Startup readiness flags
+- ML risk model controls
+- CORS and API runtime settings
 
-```env
-# PostgreSQL
-DATABASE_URL=postgresql://postgres:your_password@localhost:5432/predictive_maintenance
-POSTGRES_PASSWORD=your_password
+Tip: if readiness fails in strict mode during local iteration, review `STARTUP_STRICT_READINESS` and `STARTUP_REQUIRE_ML_MODEL`.
 
-# Groq (LLM)
-GROQ_API_KEY=your-groq-api-key
+## API Reference
 
-# App
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+Base URL: `http://localhost:8000`
+
+Predictive:
+
+- `POST /api/predictive/run`
+- `GET /api/predictive/metrics/agent-quality`
+
+Telematics:
+
+- `POST /api/telematics`
+- `GET /api/telematics/{vehicle_id}`
+
+Fleet:
+
+- `GET /api/fleet/status`
+- `GET /api/fleet/activity`
+- `GET /api/fleet/dashboard`
+
+Scheduling:
+
+- `POST /api/scheduling/recommendations`
+- `GET /api/scheduling/recommendations`
+- `GET /api/scheduling/recommendations/pending`
+- `POST /api/scheduling/recommendations/{recommendation_id}/approve`
+- `POST /api/scheduling/recommendations/{recommendation_id}/reject`
+- `GET /api/scheduling/customer-confirmation/email`
+- `POST /api/scheduling/customer-confirmation/email`
+- `POST /api/scheduling/customer-confirmation/inbound`
+- `POST /api/scheduling/customer-confirmation/webhook`
+
+Notifications:
+
+- `GET /api/notifications/`
+- `POST /api/notifications/`
+
+Streaming:
+
+- `WS /api/stream/ws`
+
+## Agent Workflow
+
+Workflow definition: [app/agents/master.py](app/agents/master.py)
+
+Current execution path:
+
+- `data_analysis`
+- `supervisor`
+- `memory_context`
+- `diagnosis`
+- `planner`
+- `customer_engagement`
+- `voice_interaction` (critical path)
+- `scheduling`
+- `verifier`
+- `feedback` (can be skipped if verifier blocks)
+- `manufacturing`
+
+State contract: [app/agents/state.py](app/agents/state.py)
+
+Safety behavior:
+
+- Booking does not finalize before explicit customer confirmation.
+- Verifier can block invalid booking artifacts.
+- Low-confidence high-risk plans trigger human review escalation.
+
+## Validation And Testing
+
+Smoke test:
+
+- Script: [scripts/smoke_test_email_confirmation.py](scripts/smoke_test_email_confirmation.py)
+
+Run:
+
+```bash
+python scripts/smoke_test_email_confirmation.py
 ```
 
-For the auth service, configure in `auth-service/src/main/resources/application.properties`:
-- JWT secret key
-- Google OAuth client ID
+Expected behavior:
 
----
+- Recommendation becomes `pending_customer_confirmation`
+- Booking is created only after customer YES confirmation
 
-## API Endpoints
+Generated report:
 
-### Predictive AI
+- [smoke_email_report.json](smoke_email_report.json)
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/predictive/run` | Trigger full AI agent pipeline for a vehicle |
+## Troubleshooting
 
-### Telematics
+1. Metrics endpoint returns 404
+- Cause: old server process still running
+- Fix: restart backend with `python -m app.main`
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/telematics/{vehicle_id}` | Get latest sensor readings for a vehicle |
+2. Booking appears earlier than expected
+- Validate confirmation path in scheduling endpoints
+- Run smoke test and inspect report
 
-### Fleet Management
+3. Readiness check fails
+- Inspect `/health/ready` response for blockers
+- Confirm DB schema and ML model availability
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/fleet/status` | Full fleet dashboard (vehicles + owners + telematics) |
-| `GET` | `/api/fleet/activity` | Agent activity log / event feed |
-| `POST` | `/api/fleet/create` | Book a service appointment |
+4. Frontend tooling mismatch on local machine
+- If Vite issues occur on Node 20.18.0, use Vite 5.x in affected projects
 
-### Health Check
+## Contributing
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/` | System health check |
+Recommended workflow:
 
----
+1. Create a feature branch
+2. Implement focused changes with tests
+3. Run smoke and relevant test suites
+4. Open a pull request with context and validation evidence
 
-## Security — UEBA
+## Documentation
 
-The **User & Entity Behavior Analytics** module provides defense-in-depth for the multi-agent system:
-
-### Access Control Matrix
-
-| Agent | Allowed Services |
-|---|---|
-| `DataAnalysisAgent` | TelematicsRepo, VehicleRepo |
-| `DiagnosisAgent` | LLM_Inference |
-| `CustomerEngagementAgent` | LLM_Inference |
-| `SchedulingAgent` | SchedulerService |
-
-Any unauthorized call is **blocked and logged** with a `PermissionError`.
-
-### How It Works
-
-1. Agent calls `secure_call(agent_name, service_name, func, ...)`
-2. `policies.py` checks the access control matrix
-3. `storage.py` logs the event (ALLOWED or BLOCKED)
-4. If allowed, the function executes; otherwise, an exception is raised
-
----
-
-## Knowledge Base (RAG)
-
-The system includes a **2,300+ line automotive knowledge base** (`app/knowledge_base.json`) covering:
-
-- **ABS** — Anti-lock Braking System diagnostics
-- **AC** — Air Conditioning system troubleshooting
-- **Engine** — Overheating, oil, ignition, fuel system analysis
-- **And more** — Categorized by subcategory with symptoms and step-by-step diagnosis procedures
-
-The `diagnosis_node` performs RAG by:
-1. Extracting symptom keywords from detected issues
-2. Searching the knowledge base via `find_diagnosis_steps()`
-3. Injecting matching repair procedures into the LLM prompt
-4. Generating a contextually-enriched diagnosis report
-
----
+- [../SYSTEM_ARCHITECTURE.md](../SYSTEM_ARCHITECTURE.md)
+- [SETUP_GUIDE.md](SETUP_GUIDE.md)
+- [BACKEND_WORKFLOW_AUDIT.md](BACKEND_WORKFLOW_AUDIT.md)
+- [SYSTEM_DESIGN_PLAN.md](SYSTEM_DESIGN_PLAN.md)
 
 ## License
 
-This project was developed as a **Final Year Project / EY Hackathon** submission.
+Use according to your institution or organization policy.

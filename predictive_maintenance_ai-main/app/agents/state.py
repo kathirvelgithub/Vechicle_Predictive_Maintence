@@ -11,6 +11,15 @@ class AgentState(TypedDict):
     node_statuses: Dict[str, str]
     node_latency_ms: Dict[str, int]
     model_used_by_node: Dict[str, str]
+    execution_plan: Optional[Dict[str, Any]]
+    plan_confidence: Optional[float]
+    verification_status: Optional[str]
+    verification_notes: Optional[List[str]]
+    requires_human_review: bool
+    historical_context: Optional[Dict[str, Any]]
+    memory_context_summary: Optional[str]
+    escalation_reason: Optional[str]
+    escalation_level: Optional[str]
 
     # --- 1. CORE INPUTS ---
     vehicle_id: str
@@ -36,7 +45,7 @@ class AgentState(TypedDict):
     
     # --- 4. CUSTOMER LAYER ---
     customer_script: str
-    customer_decision: str      # "BOOKED", "DEFERRED", "REJECTED"
+    customer_decision: str      # "BOOKED", "YES", "CONFIRMED", "PENDING_CONFIRMATION", "DEFERRED", "REJECTED"
     voice_transcript: Optional[List[Dict[str, str]]] 
     
     # --- 5. SCHEDULING LAYER ---

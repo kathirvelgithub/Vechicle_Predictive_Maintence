@@ -175,7 +175,12 @@ def _confirm_email_yes(recommendation_id: str, code: str, recipient_email: str):
 
 
 def _write_report(report: dict):
-    REPORT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    def _json_default(value):
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        return str(value)
+
+    REPORT_PATH.write_text(json.dumps(report, indent=2, default=_json_default), encoding="utf-8")
 
 
 def main():

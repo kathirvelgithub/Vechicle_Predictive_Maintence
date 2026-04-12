@@ -1,5 +1,6 @@
 import uuid
 import math
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -101,6 +102,32 @@ def _safe_text(value: Any) -> Optional[str]:
     text = str(value).strip()
     return text if text else None
 
+
+def _parse_service_datetime(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+
+    raw = str(value).strip()
+    if not raw:
+        return None
+
+    normalized = raw.replace(" ", "T")
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        try:
+            parsed = datetime.strptime(raw, "%Y-%m-%d")
+        except ValueError:
+            return None
+
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+
+    return parsed
+
 # --- 3. ENDPOINTS ---
 
 @router.post("/create")
@@ -194,11 +221,15 @@ async def get_fleet_status():
             # Status & Action
             db_status = vehicle.get("status", "active")
             s_date = vehicle.get("next_service_date")  # ✅ Fixed column name
+            service_dt = _parse_service_datetime(s_date)
+            now_utc = datetime.utcnow()
+            has_upcoming_service = bool(service_dt and service_dt >= now_utc)
 
-            if db_status == "scheduled":
-                action = "Service Booked"
-            elif numeric_prob > 80:
+            if numeric_prob > 80:
                 action = "Critical Alert"
+            elif db_status == "scheduled" and has_upcoming_service:
+                hours_to_service = (service_dt - now_utc).total_seconds() / 3600 if service_dt else 0.0
+                action = "Service Booked" if hours_to_service <= 48 else "Service Scheduled"
             else:
                 action = "Monitoring"
             

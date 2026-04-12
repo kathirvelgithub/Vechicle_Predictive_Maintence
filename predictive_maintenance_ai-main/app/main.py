@@ -1,4 +1,7 @@
 import os
+import sys
+import socket
+import multiprocessing
 from datetime import datetime, timezone
 from typing import Any, Dict
 
@@ -76,6 +79,17 @@ REQUIRED_TABLES = (
 def _env_flag(name: str, default: bool = False) -> bool:
     raw_value = str(os.getenv(name, str(default))).strip().lower()
     return raw_value in {"1", "true", "yes", "on"}
+
+
+def _is_port_available(host: str, port: int) -> bool:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind((host, port))
+        return True
+    except OSError:
+        return False
+    finally:
+        sock.close()
 
 
 def _check_required_tables() -> Dict[str, Any]:
@@ -209,5 +223,14 @@ def readiness_check():
 if __name__ == "__main__":
     # ✅ FIX 2: Correct App Path for Uvicorn
     # This assumes you are running the command from the project ROOT folder
+    multiprocessing.set_executable(sys.executable)
+    reload_enabled = os.getenv("UVICORN_RELOAD", "false").strip().lower() in {"1", "true", "yes", "on"}
+    host = os.getenv("UVICORN_HOST", "0.0.0.0").strip() or "0.0.0.0"
+    port = int(str(os.getenv("UVICORN_PORT", "8000")).strip())
+
+    if not _is_port_available(host, port):
+        print(f"ℹ️ Backend already running on {host}:{port}. Startup skipped.")
+        sys.exit(0)
+
     print("🚀 Starting Server...")
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload_enabled)

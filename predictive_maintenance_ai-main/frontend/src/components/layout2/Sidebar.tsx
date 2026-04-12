@@ -12,7 +12,6 @@ interface SidebarProps {
 const menuItems = [
   { id: 'dashboard', label: 'Master Dashboard' },
   { id: 'vehicle-health', label: 'Vehicle Health & Predictive' },
-  { id: 'diagnosis-agent', label: 'Diagnosis Agent' },
   { id: 'scheduling', label: 'Service Scheduling' },
   { id: 'security', label: 'Security & UEBA' },
 ];
@@ -28,7 +27,7 @@ export function Sidebar({ currentPage, onNavigate, isOpen, onClose }: SidebarPro
       <div className="p-6 border-b border-slate-200">
         <div className="flex items-center">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">PredictAI</h1>
+            <h1 className="text-lg font-bold text-slate-900">FleetPulse</h1>
             <p className="text-xs text-slate-500">Platform v2.5</p>
           </div>
         </div>
@@ -73,7 +72,7 @@ export function Sidebar({ currentPage, onNavigate, isOpen, onClose }: SidebarPro
 
       {/* Footer branding */}
       <div className="p-4 border-t border-slate-200">
-        <p className="text-xs text-center text-slate-400">© 2025 PredictAI</p>
+        <p className="text-xs text-center text-slate-400">© 2025 FleetPulse</p>
       </div>
     </div>
   );

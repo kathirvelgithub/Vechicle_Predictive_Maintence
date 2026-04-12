@@ -209,6 +209,42 @@ export const api = {
     );
   },
 
+  adminForceBookRecommendation: async (
+    recommendationId: string,
+    approverEmail?: string,
+    notes?: string,
+  ): Promise<SchedulingDecisionResult> => {
+    return requestApi<SchedulingDecisionResult>(
+      `/scheduling/recommendations/${recommendationId}/admin/force-book`,
+      {
+        method: "POST",
+        body: {
+          approver_email: approverEmail,
+          notes: notes || "",
+        },
+      },
+      "Failed to force-book recommendation",
+    );
+  },
+
+  adminCancelPendingRecommendation: async (
+    recommendationId: string,
+    approverEmail?: string,
+    notes?: string,
+  ): Promise<SchedulingDecisionResult> => {
+    return requestApi<SchedulingDecisionResult>(
+      `/scheduling/recommendations/${recommendationId}/admin/cancel-pending`,
+      {
+        method: "POST",
+        body: {
+          approver_email: approverEmail,
+          notes: notes || "",
+        },
+      },
+      "Failed to cancel pending recommendation",
+    );
+  },
+
   getNotifications: async (query: NotificationQuery = {}): Promise<NotificationItem[]> => {
     return requestApi<NotificationItem[]>(
       "/notifications/",
